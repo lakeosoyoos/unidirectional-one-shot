@@ -253,46 +253,15 @@ with st.sidebar:
                 "warning": float(vals.get("warning", 0.0)),
             }
 
-    # Uni-specific knobs that have no EXFO equivalent — collapsed by default.
-    with st.expander("Uni one-shot specifics", expanded=False):
-        ribbon_size = st.number_input(
-            "Ribbon size (fibers per ribbon row)",
-            min_value=1, max_value=24, value=12, step=1,
-            help="Number of fibers per ribbon row in the Excel grid.  "
-                 "12 matches a standard ribbon cable; set to 1 for "
-                 "individual-fiber reporting.")
-        splice_radius_m = st.slider(
-            "Splice match radius (m)",
-            min_value=50, max_value=300,
-            value=int(engine.CLOSURE_MATCH_KM * 1000), step=25,
-            help="An event within this distance of a validated splice "
-                 "center is rendered in the splice column.  Beyond it → "
-                 "Possible Bend/Damage.")
-        cluster_m = st.slider(
-            "Cluster window (m)",
-            min_value=25, max_value=300,
-            value=int(engine.OFF_SPLICE_CLUSTER_M), step=25,
-            help="Events on different fibers within this distance of "
-                 "each other merge into one Bend/Damage or Break column.")
-        min_pop = st.slider(
-            "Min fibers for a candidate splice",
-            min_value=2, max_value=100,
-            value=int(engine.MIN_POP_SPLICE), step=1,
-            help="A 1 km bin needs at least this many fibers with events "
-                 "in it to qualify as a candidate splice closure.")
-        break_premature_km = st.slider(
-            "Break premature buffer (km short of cable end)",
-            min_value=0.5, max_value=15.0,
-            value=float(engine.BREAK_PREMATURE_KM), step=0.5,
-            help="A fiber's EOF must lie at least this far short of the "
-                 "auto-detected cable span (AND not at a splice) to be "
-                 "flagged as a break.")
-
     st.caption(
-        "Apply the EXFO panel's Apply checkboxes to override engine "
-        "thresholds for this run.  Other knobs in the expander above "
-        "apply per-run as well.  Reload the page to reset everything."
+        "Tick **Apply** on any threshold row above to override the engine "
+        "default for this run.  Reload the page to reset."
     )
+
+# Engine defaults for the knobs we no longer expose in the UI.  If you
+# want to tune these, edit the constants at the top of
+# unidirectional_event_finder.py.
+ribbon_size        = int(engine.RIBBON_SIZE)
 
 # ── OTDR settings → engine overrides ────────────────────────────────────
 # When a row's Apply checkbox is ticked, its Fail value overrides the
@@ -310,12 +279,11 @@ def _otdr_override(key, engine_default):
 
 bend_thr = _otdr_override("unidir_splice_loss", float(engine.BEND_THRESHOLD))
 
+# Only the wired EXFO row participates in per-run overrides.  Everything
+# else (splice match radius, cluster window, min population, break
+# premature buffer) falls back to the engine module's default.
 thresholds = {
-    'BEND_THRESHOLD':       float(bend_thr),
-    'CLOSURE_MATCH_KM':     float(splice_radius_m) / 1000.0,
-    'OFF_SPLICE_CLUSTER_M': int(cluster_m),
-    'MIN_POP_SPLICE':       int(min_pop),
-    'BREAK_PREMATURE_KM':   float(break_premature_km),
+    'BEND_THRESHOLD': float(bend_thr),
 }
 
 
