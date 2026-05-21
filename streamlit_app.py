@@ -174,42 +174,112 @@ def _run_engine_inner(staged_dir: str, direction: Optional[str],
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  Sidebar
+#  Sidebar — EXFO-styled OTDR settings panel (mirrors splice-report)
 # ─────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.header("Settings")
-    ribbon_size = st.number_input(
-        "Ribbon size (fibers per ribbon row)",
-        min_value=1, max_value=24, value=12, step=1)
+#  The Description / Apply / Fail / Warning table is rendered by a custom
+#  Streamlit component (components/otdr_settings/index.html) that matches
+#  the EXFO threshold-panel look pixel-for-pixel.  Rows marked
+#  supported=True are wired to engine constants; the rest are visual
+#  parity with the EXFO panel and tagged "not yet wired" until we have
+#  engine code to back them.
+OTDR_ROWS = [
+    # (key,                      label,                        fail_default, unit,   supported)
+    ("unidir_splice_loss",       "Unidir. splice loss",        0.100,        "dB",    True),
+    ("bidir_splice_loss",        "Bidir splice loss",          0.160,        "dB",    False),
+    ("unidir_connector_loss",    "Unidir. connector loss",     0.750,        "dB",    False),
+    ("bidir_connector_loss",     "Bidir connector loss",       0.750,        "dB",    False),
+    ("splitter_loss",            "Splitter Loss",              4.500,        "dB",    False),
+    ("reflectance",              "Reflectance",                -49.9,        "dB",    False),
+    ("fiber_section_atten",      "Fiber section attenuation",  0.400,        "dB/km", False),
+    ("span_loss",                "Span loss",                  20.000,       "dB",    False),
+    ("span_length",              "Span length",                0.0000,       "km",    False),
+    ("span_orl",                 "Span ORL",                   15.00,        "dB",    False),
+]
+# Pre-checked rows — only the universal 0.1 dB uni gate is on by default.
+OTDR_DEFAULT_APPLY = {"unidir_splice_loss"}
 
-    st.divider()
-    with st.expander("Thresholds", expanded=True):
-        bend_thr = st.slider(
-            "Flag threshold (dB)",
-            min_value=0.020, max_value=0.500,
-            value=float(engine.BEND_THRESHOLD), step=0.005, format="%.3f",
-            help="Universal minimum |loss| to flag an event.  Splice cells "
-                 "and bend/damage clusters both gate on this value.")
+if "otdr_settings" not in st.session_state:
+    st.session_state.otdr_settings = {
+        key: {
+            "apply":   key in OTDR_DEFAULT_APPLY,
+            "fail":    fail,
+            "warning": fail,
+        }
+        for key, _, fail, _, _ in OTDR_ROWS
+    }
+
+with st.sidebar:
+    # Widen the sidebar so the EXFO-styled table fits cleanly.
+    st.markdown("""
+    <style>
+      section[data-testid="stSidebar"],
+      section[data-testid="stSidebar"][aria-expanded="true"] {
+        width: 620px !important;
+        min-width: 620px !important;
+        max-width: 620px !important;
+      }
+      section[data-testid="stSidebar"] > div {
+        width: 620px !important;
+        min-width: 620px !important;
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.header("Settings")
+
+    # Render the EXFO-styled threshold panel via the same component the
+    # splice-report app uses.  Commit values persist in session_state.
+    from components.otdr_settings import otdr_settings as otdr_settings_component
+    _otdr_rows_for_component = [
+        {
+            "key":       key,
+            "label":     label,
+            "unit":      unit,
+            "supported": supported,
+            "initial":   st.session_state.otdr_settings[key],
+        }
+        for key, label, _fail, unit, supported in OTDR_ROWS
+    ]
+    _commit = otdr_settings_component(
+        _otdr_rows_for_component,
+        default=None,
+        key="otdr_component",
+    )
+    if _commit:
+        for key, vals in _commit.items():
+            st.session_state.otdr_settings[key] = {
+                "apply":   bool(vals.get("apply")),
+                "fail":    float(vals.get("fail", 0.0)),
+                "warning": float(vals.get("warning", 0.0)),
+            }
+
+    # Uni-specific knobs that have no EXFO equivalent — collapsed by default.
+    with st.expander("Uni one-shot specifics", expanded=False):
+        ribbon_size = st.number_input(
+            "Ribbon size (fibers per ribbon row)",
+            min_value=1, max_value=24, value=12, step=1,
+            help="Number of fibers per ribbon row in the Excel grid.  "
+                 "12 matches a standard ribbon cable; set to 1 for "
+                 "individual-fiber reporting.")
         splice_radius_m = st.slider(
             "Splice match radius (m)",
             min_value=50, max_value=300,
             value=int(engine.CLOSURE_MATCH_KM * 1000), step=25,
             help="An event within this distance of a validated splice "
                  "center is rendered in the splice column.  Beyond it → "
-                 "bend/damage.")
+                 "Possible Bend/Damage.")
         cluster_m = st.slider(
             "Cluster window (m)",
             min_value=25, max_value=300,
             value=int(engine.OFF_SPLICE_CLUSTER_M), step=25,
             help="Events on different fibers within this distance of "
-                 "each other are merged into one bend/damage or break "
-                 "column.")
+                 "each other merge into one Bend/Damage or Break column.")
         min_pop = st.slider(
             "Min fibers for a candidate splice",
             min_value=2, max_value=100,
             value=int(engine.MIN_POP_SPLICE), step=1,
             help="A 1 km bin needs at least this many fibers with events "
-                 "in it to count as a candidate splice closure.")
+                 "in it to qualify as a candidate splice closure.")
         break_premature_km = st.slider(
             "Break premature buffer (km short of cable end)",
             min_value=0.5, max_value=15.0,
@@ -218,19 +288,35 @@ with st.sidebar:
                  "auto-detected cable span (AND not at a splice) to be "
                  "flagged as a break.")
 
-    thresholds = {
-        'BEND_THRESHOLD':       float(bend_thr),
-        'CLOSURE_MATCH_KM':     float(splice_radius_m) / 1000.0,
-        'OFF_SPLICE_CLUSTER_M': int(cluster_m),
-        'MIN_POP_SPLICE':       int(min_pop),
-        'BREAK_PREMATURE_KM':   float(break_premature_km),
-    }
-
-    st.divider()
     st.caption(
-        "Thresholds are applied per-run.  Defaults match the engine "
-        "module's published values.  Reload the page to reset."
+        "Apply the EXFO panel's Apply checkboxes to override engine "
+        "thresholds for this run.  Other knobs in the expander above "
+        "apply per-run as well.  Reload the page to reset everything."
     )
+
+# ── OTDR settings → engine overrides ────────────────────────────────────
+# When a row's Apply checkbox is ticked, its Fail value overrides the
+# engine default for that threshold.  Unticked rows fall back to the
+# engine value.
+otdr = st.session_state.get("otdr_settings", {})
+
+
+def _otdr_override(key, engine_default):
+    row = otdr.get(key) or {}
+    if row.get("apply") and row.get("fail") is not None:
+        return float(row["fail"])
+    return engine_default
+
+
+bend_thr = _otdr_override("unidir_splice_loss", float(engine.BEND_THRESHOLD))
+
+thresholds = {
+    'BEND_THRESHOLD':       float(bend_thr),
+    'CLOSURE_MATCH_KM':     float(splice_radius_m) / 1000.0,
+    'OFF_SPLICE_CLUSTER_M': int(cluster_m),
+    'MIN_POP_SPLICE':       int(min_pop),
+    'BREAK_PREMATURE_KM':   float(break_premature_km),
+}
 
 
 # ─────────────────────────────────────────────────────────────────────

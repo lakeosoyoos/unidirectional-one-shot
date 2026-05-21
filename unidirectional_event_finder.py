@@ -971,29 +971,46 @@ def write_xlsx(grid, columns, n_fibers, ribbon_size, span_km, output_path,
         bottom=Side(style='thin', color='CCCCCC'),
     )
 
-    # ── Header rows: B→A on row 1, A→B on row 2 (closer to the data,
-    #    since the A end is where the OTDR shot from) ─────────────────
+    # ── Header rows (4 distance rows + 1 type row).  Feet sit *above* km
+    #    for each direction so the cells can be narrower (one number per
+    #    cell).  Order from top to bottom:
+    #       Row 1: B→A feet
+    #       Row 2: B→A km
+    #       Row 3: A→B feet
+    #       Row 4: A→B km
+    #       Row 5: column-type label  (was row 3)
+    #       Row 6+: data              (was row 4+)
+    # ──────────────────────────────────────────────────────────────────
     ab_label = f"{site_a}→{site_b}:" if (site_a and site_b) else "A→B:"
     ba_label = f"{site_b}→{site_a}:" if (site_a and site_b) else "B→A:"
-    ws.cell(row=1, column=1, value=ba_label).font = b_km_font
-    ws.cell(row=2, column=1, value=ab_label).font = a_km_font
+    ws.cell(row=1, column=1, value=f"{ba_label} ft").font = b_km_font
+    ws.cell(row=2, column=1, value=f"{ba_label} km").font = b_km_font
+    ws.cell(row=3, column=1, value=f"{ab_label} ft").font = a_km_font
+    ws.cell(row=4, column=1, value=f"{ab_label} km").font = a_km_font
     for ci, col in enumerate(columns):
         excel_col = ci + 2
         km_a = col['position_km_display']
         km_b = math.floor((span_km - km_a) * 100) / 100.0 if span_km > 0 else 0.0
         ft_a = km_a * 3280.84
         ft_b = km_b * 3280.84
-        cb = ws.cell(row=1, column=excel_col, value=f"{km_b:.2f}km / {ft_b:,.0f}ft")
-        cb.font = b_km_font
-        cb.alignment = Alignment(horizontal='center')
-        ca = ws.cell(row=2, column=excel_col, value=f"{km_a:.2f}km / {ft_a:,.0f}ft")
-        ca.font = a_km_font
-        ca.alignment = Alignment(horizontal='center')
+        c_bft = ws.cell(row=1, column=excel_col, value=f"{ft_b:,.0f} ft")
+        c_bkm = ws.cell(row=2, column=excel_col, value=f"{km_b:.2f} km")
+        c_aft = ws.cell(row=3, column=excel_col, value=f"{ft_a:,.0f} ft")
+        c_akm = ws.cell(row=4, column=excel_col, value=f"{km_a:.2f} km")
+        for c in (c_bft, c_bkm):
+            c.font = b_km_font
+            c.alignment = Alignment(horizontal='center')
+        for c in (c_aft, c_akm):
+            c.font = a_km_font
+            c.alignment = Alignment(horizontal='center')
 
-    # ── Row 3: column-type header ────────────────────────────────────
-    ws.cell(row=3, column=1, value="Ribbon").font = hdr_font
-    ws.cell(row=3, column=1).fill = hdr_fill_sp
+    # ── Row 5: column-type header ────────────────────────────────────
     splice_n = bend_n = break_n = 0
+    HEADER_ROWS = 4
+    TYPE_ROW = HEADER_ROWS + 1   # 5
+    DATA_START_ROW = TYPE_ROW + 1  # 6
+    ws.cell(row=TYPE_ROW, column=1, value="Ribbon").font = hdr_font
+    ws.cell(row=TYPE_ROW, column=1).fill = hdr_fill_sp
     for ci, col in enumerate(columns):
         excel_col = ci + 2
         if col['kind'] == 'splice':
@@ -1008,7 +1025,7 @@ def write_xlsx(grid, columns, n_fibers, ribbon_size, span_km, output_path,
             bend_n += 1
             label = f"Bend/Damage {bend_n}"
             fill = hdr_fill_bend
-        c = ws.cell(row=3, column=excel_col, value=label)
+        c = ws.cell(row=TYPE_ROW, column=excel_col, value=label)
         c.font = hdr_font
         c.fill = fill
         c.alignment = Alignment(horizontal='center')
@@ -1016,7 +1033,7 @@ def write_xlsx(grid, columns, n_fibers, ribbon_size, span_km, output_path,
     # ── Data rows ────────────────────────────────────────────────────
     cell_text_font = Font(name=FONT_NAME, size=FONT_SIZE)
     for ri in range(n_ribbons):
-        excel_row = ri + 4
+        excel_row = ri + DATA_START_ROW
         ws.cell(row=excel_row, column=1,
                 value=ribbon_label(ri, ribbon_size, n_fibers)).font = ribbon_font
         for ci, col in enumerate(columns):
@@ -1100,14 +1117,13 @@ def write_xlsx(grid, columns, n_fibers, ribbon_size, span_km, output_path,
     ws.column_dimensions['A'].width = 30
     for ci in range(n_cols):
         col_letter = openpyxl.utils.get_column_letter(ci + 2)
-        ws.column_dimensions[col_letter].width = 26
-    # Row height bump so wrapped Calibri 12 labels stay readable
-    for ri in range(4, n_ribbons + 4):
+        ws.column_dimensions[col_letter].width = 16
+    # Row heights: skinny distance rows, taller data rows for wrapped labels
+    for ri in range(DATA_START_ROW, n_ribbons + DATA_START_ROW):
         ws.row_dimensions[ri].height = 32
-    ws.row_dimensions[1].height = 22
-    ws.row_dimensions[2].height = 22
-    ws.row_dimensions[3].height = 22
-    ws.freeze_panes = 'B4'
+    for ri in (1, 2, 3, 4, TYPE_ROW):
+        ws.row_dimensions[ri].height = 18
+    ws.freeze_panes = f'B{DATA_START_ROW}'
 
     # ── Flagged Events sheet (per-fiber detail) ─────────────────────
     ev_sheet = wb.create_sheet("Flagged Events")
