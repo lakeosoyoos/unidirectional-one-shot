@@ -58,7 +58,11 @@ BEND_THRESHOLD                = 0.100   # dB — universal unidirectional flag t
                                         #      splice columns AND off-splice).  Per tech
                                         #      direction May 2026: the uni one-shot only
                                         #      cares about events ≥ 0.1 dB.
-CLOSURE_MATCH_KM              = 0.150   # km — events within this of a valid closure are at-splice
+CLOSURE_MATCH_KM              = 0.075   # km — events within this of a valid closure are at-splice
+                                        # (May 2026: tightened to 75 m to match the bidi
+                                        # splice report's closure-match radius.  Events
+                                        # farther than 75 m from the refined center are
+                                        # classified as Possible Bend/Damage instead.)
 CLOSURE_MODE_BIN_M            = 25
 CLOSURE_MODE_WINDOW_M         = 75
 CLOSURE_VALID_MIN_GAINER_FRAC = 0.05
