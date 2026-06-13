@@ -261,6 +261,48 @@ def _native_pick_folder() -> Optional[str]:
         return None
 
 
+def _native_pick_zip() -> Optional[str]:
+    """Same dance as _native_pick_folder but filtered to .zip files."""
+    try:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askopenfilename(
+            parent=root,
+            title="Choose a ZIP archive of SOR / JSON files",
+            filetypes=[("ZIP archives", "*.zip"),
+                       ("All files",    "*.*")],
+        )
+        root.destroy()
+        return path or None
+    except Exception:
+        return None
+
+
+@st.cache_data(show_spinner="Extracting ZIP...")
+def _extract_zip(zip_path: str, mtime: float) -> str:
+    """Extract ``zip_path`` to a fresh temp directory and return its
+    path.  Cache key includes ``mtime`` so a modified zip re-extracts
+    (and an unmodified zip on a Streamlit rerun returns the same temp
+    dir instantly, no repeat unzip)."""
+    import zipfile
+    tmp = tempfile.mkdtemp(prefix="unidir_zip_")
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(tmp)
+    return tmp
+
+
+def _normalize_input(path: str) -> tuple[str, bool]:
+    """Return (working_directory, was_extracted).  If ``path`` is a
+    ``.zip`` file, extract it (cached) and return the temp directory.
+    Otherwise return ``path`` unchanged."""
+    if os.path.isfile(path) and path.lower().endswith(".zip"):
+        return _extract_zip(path, os.path.getmtime(path)), True
+    return path, False
+
+
 # ─────────────────────────────────────────────────────────────────────
 #  Sidebar — version indicator, Quit, EXFO threshold panel
 # ─────────────────────────────────────────────────────────────────────
@@ -439,36 +481,50 @@ ribbon_size = int(engine.RIBBON_SIZE)
 
 
 # ─────────────────────────────────────────────────────────────────────
-#  Step 1 — pick a folder
+#  Step 1 — pick a folder OR a .zip
 # ─────────────────────────────────────────────────────────────────────
-st.subheader("1. Pick a folder")
+st.subheader("1. Pick a folder or a ZIP")
 
 if "_folder" not in st.session_state:
     st.session_state["_folder"] = ""
 
-c1, c2 = st.columns([1, 4])
+c1, c2, c3 = st.columns([1, 1, 4])
 with c1:
-    if st.button("Browse…", use_container_width=True):
+    if st.button("Browse folder…", use_container_width=True):
         chosen = _native_pick_folder()
         if chosen:
             st.session_state["_folder"] = chosen
 with c2:
+    if st.button("Pick a ZIP…", use_container_width=True):
+        chosen = _native_pick_zip()
+        if chosen:
+            st.session_state["_folder"] = chosen
+with c3:
     pasted = st.text_input(
-        "or paste a folder path",
+        "or paste a folder or .zip path",
         value=st.session_state["_folder"],
-        placeholder=r"C:\OTDR\YAKCLE  or  /Users/me/Desktop/OTDR/YAKCLE",
+        placeholder=r"C:\OTDR\YAKCLE   |   C:\OTDR\YAKCLE.zip",
         label_visibility="collapsed",
     )
     if pasted != st.session_state["_folder"]:
         st.session_state["_folder"] = pasted
 
-folder = (st.session_state["_folder"] or "").strip().strip('"')
-if not folder:
-    st.info("Click **Browse…** or paste a folder path to begin.")
+raw_input = (st.session_state["_folder"] or "").strip().strip('"')
+if not raw_input:
+    st.info("Click **Browse folder…**, **Pick a ZIP…**, or paste a path to begin.")
     st.stop()
-if not os.path.isdir(folder):
-    st.error(f"Path doesn't exist or isn't a folder: `{folder}`")
+if not (os.path.isfile(raw_input) or os.path.isdir(raw_input)):
+    st.error(f"Path doesn't exist: `{raw_input}`")
     st.stop()
+if os.path.isfile(raw_input) and not raw_input.lower().endswith(".zip"):
+    st.error(f"Single files must be .zip — got `{os.path.basename(raw_input)}`")
+    st.stop()
+
+# Normalize: if user picked a single .zip, extract it (cached) and run
+# the inventory against the extracted folder.  Otherwise pass through.
+folder, was_extracted = _normalize_input(raw_input)
+if was_extracted:
+    st.caption(f"Extracted **{os.path.basename(raw_input)}** → `{folder}`")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -552,8 +608,11 @@ else:
 # ─────────────────────────────────────────────────────────────────────
 st.subheader("4. Run")
 
-# Output goes into a subfolder next to the inputs.
-output_dir = os.path.join(folder, "_unidir_output")
+# Output goes into a subfolder next to the inputs.  When the user
+# picked a .zip we extracted it to a temp dir — we don't want the
+# Excel buried in there, so write next to the original zip instead.
+output_root = os.path.dirname(raw_input) if was_extracted else folder
+output_dir  = os.path.join(output_root, "_unidir_output")
 
 run_clicked = st.button("Run unidirectional event finder",
                         type="primary", use_container_width=True)
