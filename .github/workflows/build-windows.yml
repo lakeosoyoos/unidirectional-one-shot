@@ -1,0 +1,180 @@
+# ──────────────────────────────────────────────────────────────────────
+#  build-windows.yml — package UnidirectionalOneShot for Windows
+#
+#  Triggers: manual (workflow_dispatch) + any push that touches desktop/.
+#
+#  What this workflow does, in order:
+#    1. Sets up Python 3.11 x64 on a clean windows-latest runner.
+#    2. Installs requirements-desktop.txt and re-pins setuptools==65.5.1
+#       LAST so transitive installs can't bump it.
+#    3. Runs PyInstaller against UnidirectionalOneShot.spec.
+#    4. ⚡ MANDATORY BOOT SELF-TEST: actually launches the packaged .exe,
+#       polls /_stcore/health for up to 90 s, and fails the job if the
+#       app never serves "ok".  This is the ONLY guardrail that catches
+#       a build that compiles green but is DOA — a passing build with a
+#       missing/failing boot test must NEVER ship to a tech.
+#    5. Zips the output bundle.
+#    6. Uploads it as a CI artifact.
+#    7. Publishes / updates the permanent `windows-build` Release whose
+#       download URL never changes.
+#
+#  Permanent download URL the tech bookmarks:
+#    https://github.com/lakeosoyoos/unidirectional-one-shot/releases/download/windows-build/UnidirectionalOneShot-Windows.zip
+# ──────────────────────────────────────────────────────────────────────
+
+name: Build Windows desktop app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/build-windows.yml"
+
+permissions:
+  contents: write   # so gh release create / upload can publish
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------
+      # Python 3.11 (NOT 3.12+).  See README_BUILD.txt
+      # ---------------------------------------------------------------
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: x64
+
+      # ---------------------------------------------------------------
+      # Install deps.  setuptools is pinned in requirements-desktop.txt
+      # AND re-pinned here as the last install step so it cannot be
+      # bumped transitively by pyinstaller / streamlit / anything else.
+      # ---------------------------------------------------------------
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements-desktop.txt
+          pip install --upgrade --force-reinstall setuptools==65.5.1
+
+      # ---------------------------------------------------------------
+      # Build the bundle.
+      # ---------------------------------------------------------------
+      - name: PyInstaller build
+        run: |
+          pyinstaller UnidirectionalOneShot.spec --noconfirm --clean
+
+      # ---------------------------------------------------------------
+      # ⚡ MANDATORY BOOT SELF-TEST.
+      #
+      # Every DOA build in our history compiled green.  A successful
+      # PyInstaller exit code tells us NOTHING about whether the app
+      # actually launches.  The only proof is to run it.
+      #
+      # The app is windowed (console=False), so a crash shows a blocking
+      # error dialog and produces no stdout/stderr in the CI log.  We
+      # work around that by piping both streams to files via
+      # Start-Process and always dumping the files after — even on the
+      # success path — so we can debug from the log.
+      #
+      # On any failure (exit early, never serves, error in launcher),
+      # we exit 1 here.  The Release publish step is GATED on this
+      # step's success, so a broken build never reaches a tech.
+      # ---------------------------------------------------------------
+      - name: Boot self-test (launch the .exe and poll /_stcore/health)
+        run: |
+          $exe = "dist/UnidirectionalOneShot/UnidirectionalOneShot.exe"
+          if (-not (Test-Path $exe)) {
+              Write-Error "BOOT SELF-TEST FAILED: $exe not produced by PyInstaller"
+              exit 1
+          }
+
+          $env:SS_DISABLE_AUTO_UPDATE = "1"   # don't reach for network in CI
+
+          Write-Host "Launching $exe ..."
+          $proc = Start-Process $exe -PassThru `
+              -RedirectStandardOutput out.txt `
+              -RedirectStandardError  err.txt
+
+          $ok = $false
+          for ($i = 0; $i -lt 45; $i++) {
+              Start-Sleep 2
+              if ($proc.HasExited) {
+                  Write-Host "Process exited early with code $($proc.ExitCode)"
+                  break
+              }
+              try {
+                  $resp = Invoke-WebRequest -Uri http://127.0.0.1:8501/_stcore/health `
+                                            -UseBasicParsing -TimeoutSec 2
+                  if ($resp.Content.Trim() -eq "ok") {
+                      Write-Host "Health endpoint returned ok after $($i*2) s — BOOT SELF-TEST PASSED"
+                      $ok = $true
+                      break
+                  }
+              } catch { }
+          }
+
+          Write-Host "---- stderr ----"
+          Get-Content err.txt -ErrorAction SilentlyContinue
+          Write-Host "---- stdout ----"
+          Get-Content out.txt -ErrorAction SilentlyContinue
+          Write-Host "---- launcher log ----"
+          Get-Content "$HOME\.unidirectionaloneshot\unidirectionaloneshot.log" -ErrorAction SilentlyContinue
+
+          Stop-Process $proc.Id -Force -ErrorAction SilentlyContinue
+          Get-Process | Where-Object { $_.ProcessName -eq "UnidirectionalOneShot" } |
+              ForEach-Object { Stop-Process $_.Id -Force -ErrorAction SilentlyContinue }
+
+          if (-not $ok) {
+              Write-Error "BOOT SELF-TEST FAILED — bundle did not serve /_stcore/health=ok within 90 s.  Release will NOT be published."
+              exit 1
+          }
+
+      # ---------------------------------------------------------------
+      # Zip the bundle.  Compress-Archive preserves the one-folder
+      # layout the tech needs.
+      # ---------------------------------------------------------------
+      - name: Zip the bundle
+        run: |
+          Compress-Archive -Path dist/UnidirectionalOneShot/* `
+                           -DestinationPath UnidirectionalOneShot-Windows.zip `
+                           -Force
+          Get-Item UnidirectionalOneShot-Windows.zip |
+              Format-Table Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UnidirectionalOneShot-Windows
+          path: desktop/UnidirectionalOneShot-Windows.zip
+          if-no-files-found: error
+
+      # ---------------------------------------------------------------
+      # Publish to the PERMANENT Release tag `windows-build`.  The
+      # download URL never changes — techs bookmark it once.
+      # ---------------------------------------------------------------
+      - name: Publish to windows-build Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "windows-build"
+          $title = "Windows desktop build (auto)"
+          $notes = "Automated build of UnidirectionalOneShot for Windows. " +
+                   "Download UnidirectionalOneShot-Windows.zip, right-click " +
+                   ">> Properties >> Unblock, Extract All, double-click the .exe."
+          gh release create $tag --title $title --notes $notes --latest 2>$null
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "Release tag exists; updating asset."
+          }
+          gh release upload $tag UnidirectionalOneShot-Windows.zip --clobber

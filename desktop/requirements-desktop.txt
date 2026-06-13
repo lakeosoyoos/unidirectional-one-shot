@@ -1,0 +1,46 @@
+# ----------------------------------------------------------------------
+# requirements-desktop.txt — pinned for the Windows + macOS PyInstaller
+# build of UnidirectionalOneShot.
+#
+# READ THIS BEFORE TOUCHING: these pins exist because removing any one
+# of them causes the packaged .exe / .app to crash at startup with a
+# blocking dialog the user cannot dismiss.  See README_BUILD.txt for the
+# specific failure mode each pin prevents.
+#
+#   • Python 3.11 ONLY  (pkgutil.ImpImporter removed in 3.12; setuptools
+#     65.5.1 depends on it).
+#   • setuptools 65.5.1 first AND last  (newer setuptools rejects the
+#     packaged-app's bundle path as a "version" → InvalidVersion crash).
+#   • jaraco / packaging / platformdirs / appdirs / ordered-set / more-
+#     itertools installed as REAL top-level packages, NOT just bundled
+#     via the .spec — pkg_resources' extern-importer needs a runtime
+#     fallback when its vendored copy is unreachable from the frozen
+#     bundle.
+# ----------------------------------------------------------------------
+
+# Step 1: pin setuptools FIRST (before anything else can pull a newer one
+# transitively).  The CI workflow re-pins it LAST too — belt and braces.
+setuptools==65.5.1
+
+# Step 2: pkg_resources' vendored packages, installed as real packages.
+# This is what stops "the jaraco package is required" on a clean machine.
+jaraco.text>=3.11
+jaraco.functools>=4.0
+jaraco.context>=5.3
+more-itertools>=10.2
+packaging>=23.2
+platformdirs>=4.2
+appdirs>=1.4.4
+ordered-set>=4.1
+
+# Step 3: app runtime deps (the same versions the web app uses, but
+# no upper-bound pin so security updates aren't blocked).
+streamlit>=1.31
+numpy>=1.26
+pandas>=2.1
+openpyxl>=3.1
+reportlab>=4.0
+
+# Step 4: build tool.  Always last so it can't accidentally pull a
+# newer setuptools as a build-time dependency.
+pyinstaller>=6.5
