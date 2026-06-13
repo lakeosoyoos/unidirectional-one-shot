@@ -2,10 +2,22 @@
 launcher.py — PyInstaller entry point for Unidirectional One Shot (Desktop)
 ==========================================================================
 
-Boots a local Streamlit server on http://127.0.0.1:8501, opens the
+Boots a local Streamlit server on http://127.0.0.1:8505, opens the
 default browser once the server actually responds, and (when the network
 is available) auto-updates the small engine + UI .py files from
 ``main`` on GitHub before launching.
+
+Port assignment — DO NOT change without a coordinated update.  Each of
+our desktop apps claims a unique port so they don't shadow each other
+on a tech's machine:
+
+    Secret Sauce        127.0.0.1:8501
+    SpliceReport        127.0.0.1:8503
+    Unidirectional      127.0.0.1:8505   ← THIS APP
+
+A CI static check enforces ``PORT == 8505`` here.  Changing it without
+also picking a port that doesn't appear in the table above will fail
+the check before the build runs.
 
 Every line in here exists because a previous build crashed without it.
 See ``README_BUILD.txt`` for the failure-mode catalog.
@@ -39,15 +51,34 @@ import webbrowser
 
 APP_NAME       = "UnidirectionalOneShot"
 SERVER_HOST    = "127.0.0.1"
-# 8502 — NOT 8501 — so we don't clash with Splice Report or any other
-# Streamlit app the maintainer / tech might already be running on the
-# default port.  If 8502 is also taken by something we can't identify
-# as ours, we fall through to 8503/8504/...  SERVER_PORT is mutated by
-# _select_port() at startup, then used by every other function.
-SERVER_PORT    = 8502
-FALLBACK_PORTS = (8503, 8504, 8505)
+
+# PORT — the ONE TRUE PORT LITERAL for this app.  Static check
+# (scripts/check_port_assignment.py, called from CI) greps for
+# ``^PORT\s*=\s*(\d+)`` and fails the build if the literal isn't 8505.
+# Don't introduce duplicate ``8505`` literals elsewhere — derive
+# everything from this constant.
+PORT           = 8505
+
+# Fallbacks only kick in if PORT is occupied by SOMETHING THAT ISN'T US
+# (e.g. another tech process bound 8505 first).  Skip 8501/8502/8503/
+# 8504/8506-8509 so we don't accidentally collide with current or
+# future sibling apps in our stack.
+FALLBACK_PORTS = (8525, 8535, 8545)
 HEALTH_PATH    = "/_stcore/health"
 HEALTH_TIMEOUT = 90.0   # seconds the first cold boot may take
+
+# Runtime port — initialised from PORT, may be mutated to a fallback by
+# _select_port().  Every URL / argv string is derived from this so the
+# fallback flows through to the browser tab and the --server.port arg.
+SERVER_PORT = PORT
+
+
+def _health_url() -> str:
+    return f"http://{SERVER_HOST}:{SERVER_PORT}{HEALTH_PATH}"
+
+
+def _app_url() -> str:
+    return f"http://{SERVER_HOST}:{SERVER_PORT}"
 GH_OWNER       = "lakeosoyoos"
 GH_REPO        = "unidirectional-one-shot"
 GH_BRANCH      = "main"
@@ -163,7 +194,7 @@ def _open_browser_when_ready(deadline_s: float = HEALTH_TIMEOUT) -> None:
     while time.time() < deadline:
         if _health_ok():
             try:
-                webbrowser.open_new_tab(f"http://{SERVER_HOST}:{SERVER_PORT}")
+                webbrowser.open_new_tab(_app_url())
             except Exception:
                 pass
             return
@@ -416,10 +447,10 @@ def main() -> int:
     print(f"port selection: {reason} (port={port})")
 
     if reason == "already-ours":
-        webbrowser.open_new_tab(f"http://{SERVER_HOST}:{SERVER_PORT}")
+        webbrowser.open_new_tab(_app_url())
         return 0
     if reason == "all-taken":
-        print(f"ERROR: ports {[8502, *FALLBACK_PORTS]} all occupied by "
+        print(f"ERROR: ports {[PORT, *FALLBACK_PORTS]} all occupied by "
               "non-UnidirectionalOneShot processes.  Free one and re-launch.")
         return 1
 

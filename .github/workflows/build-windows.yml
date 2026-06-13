@@ -69,6 +69,20 @@ jobs:
           pip install --upgrade --force-reinstall setuptools==65.5.1
 
       # ---------------------------------------------------------------
+      # Static port-assignment check.
+      #
+      # Each of our desktop apps claims a unique loopback port so the
+      # tech doesn't get the wrong app's tab on double-click.  This
+      # step greps desktop/launcher.py for PORT = 8505 and fails the
+      # build if the literal differs.  A future maintainer who copies
+      # the launcher from another app and forgets to update the port
+      # gets a loud red CI failure here, BEFORE the build starts.
+      # ---------------------------------------------------------------
+      - name: Verify PORT = 8505 in launcher
+        working-directory: .
+        run: python scripts/check_port_assignment.py
+
+      # ---------------------------------------------------------------
       # Build the bundle.
       # ---------------------------------------------------------------
       - name: PyInstaller build
@@ -115,7 +129,7 @@ jobs:
                   break
               }
               try {
-                  $resp = Invoke-WebRequest -Uri http://127.0.0.1:8502/_stcore/health `
+                  $resp = Invoke-WebRequest -Uri http://127.0.0.1:8505/_stcore/health `
                                             -UseBasicParsing -TimeoutSec 2
                   if ($resp.Content.Trim() -eq "ok") {
                       Write-Host "Health endpoint returned ok after $($i*2) s — BOOT SELF-TEST PASSED"

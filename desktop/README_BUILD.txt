@@ -36,6 +36,29 @@ bundle boots successfully.  If the bundle is DOA they must redownload
 from the URL above.
 
 
+PORT ASSIGNMENT — 8505 (don't change without coordinating)
+----------------------------------------------------------
+Each of our desktop apps claims a unique loopback port so a tech who
+runs more than one of them doesn't get the wrong app's browser tab on
+a double-click.  Current registry:
+
+    Secret Sauce         127.0.0.1:8501
+    SpliceReport         127.0.0.1:8503
+    Unidirectional       127.0.0.1:8505   ← THIS APP
+
+A static check (``scripts/check_port_assignment.py``, called from CI
+before the PyInstaller build) greps for ``^PORT\s*=\s*(\d+)`` in
+``desktop/launcher.py`` and fails the build if the literal isn't 8505.
+If you genuinely need a different port, update BOTH the launcher
+constant AND the check script's expected value, and remember to pick
+a port that doesn't appear in the registry above (8525/8535/8545 are
+already reserved as fallbacks here too).
+
+The bundle's own self-tests (CI ``Boot self-test`` step, local
+``build_mac.sh`` test) all hit http://127.0.0.1:8505/_stcore/health
+- they're derived from the same PORT constant in launcher.py.
+
+
 PYTHON VERSION — 3.11 ONLY
 --------------------------
 The build MUST use Python 3.11.  Do not use 3.12 or newer.
@@ -164,7 +187,7 @@ LOCAL BUILD — macOS
   3. Output: dist/UnidirectionalOneShot/UnidirectionalOneShot
 
      Double-click that binary in Finder; the Streamlit UI opens in your
-     default browser at http://127.0.0.1:8501.
+     default browser at http://127.0.0.1:8505.
 
      macOS may refuse to launch an unsigned binary on first run with
      "cannot be opened because the developer cannot be verified".  Fix:
@@ -197,7 +220,7 @@ Send this verbatim to a tech who's about to install:
   7. The first launch takes 10-30 s while the bundle unpacks.  There
      is no progress bar (we suppress the console window).  When it's
      ready, your default browser opens to the app at
-     http://127.0.0.1:8501 — that's the UI.
+     http://127.0.0.1:8505 — that's the UI.
 
   8. Every subsequent launch is fast (~2 s).  On launches with internet,
      the engine files auto-update from GitHub silently; offline, the
