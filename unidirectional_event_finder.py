@@ -1195,6 +1195,24 @@ def write_xlsx(grid, columns, n_fibers, ribbon_size, span_km, output_path,
             # Audit failure must NOT break the rest of the report.
             print(f"  WARN: acquisition audit skipped: {exc}")
 
+    # ── Reburn percentage (sheet 1) ──────────────────────────────────
+    # Headline metric: fraction of (ribbon × splice column) cells that
+    # have at least one fiber flagged for re-splice.  Inserted right
+    # after the audit sheet so the high-level summary sheets are at the
+    # front of the workbook; ribbon grid stays as sheet 2.
+    try:
+        from reburn_percentage import build_reburn_summary, write_reburn_sheet
+        summary = build_reburn_summary(
+            grid, columns, n_ribbons,
+            ribbon_label_fn=lambda ri: ribbon_label(ri, ribbon_size, n_fibers),
+        )
+        write_reburn_sheet(wb, summary, insert_at=1)
+        print(f"  Reburn percentage: {summary['percentage']:.2f}% "
+              f"({summary['reburn_cells']} of {summary['total_cells']} "
+              f"splice cells)")
+    except Exception as exc:
+        print(f"  WARN: reburn sheet skipped: {exc}")
+
     wb.save(output_path)
     print(f"  Saved: {output_path}  ({len(rows)} flagged-event rows)")
 

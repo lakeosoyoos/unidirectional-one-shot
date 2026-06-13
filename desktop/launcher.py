@@ -201,6 +201,7 @@ AUTO_UPDATE_FILES = [
     "json_reader.py",
     "unidirectional_event_finder.py",
     "acquisition_audit.py",
+    "reburn_percentage.py",
     "components/otdr_settings/__init__.py",
     "components/otdr_settings/index.html",
     "desktop/desktop_app.py",

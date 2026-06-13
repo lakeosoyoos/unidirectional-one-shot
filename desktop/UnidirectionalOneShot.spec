@@ -97,6 +97,7 @@ hiddenimports += [
     "sor_reader324802a",
     "json_reader",
     "acquisition_audit",
+    "reburn_percentage",
     # Custom Streamlit component
     "components",
     "components.otdr_settings",
@@ -119,6 +120,7 @@ datas += [
     (str(REPO_ROOT / "sor_reader324802a.py"),           "."),
     (str(REPO_ROOT / "json_reader.py"),                 "."),
     (str(REPO_ROOT / "acquisition_audit.py"),           "."),
+    (str(REPO_ROOT / "reburn_percentage.py"),           "."),
     (str(HERE      / "desktop_app.py"),                 "desktop"),
     # Custom component — both .py AND the index.html
     (str(REPO_ROOT / "components" / "otdr_settings" / "__init__.py"),
