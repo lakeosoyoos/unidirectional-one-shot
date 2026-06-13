@@ -9,3 +9,5 @@ venv/
 *.zip
 .idea/
 .vscode/
+desktop/build/
+desktop/dist/
