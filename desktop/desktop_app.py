@@ -317,27 +317,26 @@ def _engine_source_label() -> str:
     return "bundled (offline)"
 
 
-# EXFO threshold panel — IDENTICAL to the splice-report panel.  Same
-# row list, same defaults, same supported flags, same default-Apply
-# set, same customer profile dropdown.  Only `unidir_splice_loss` is
-# actually wired to the uni engine (BEND_THRESHOLD); the other
-# supported=True rows render visually identical but are no-ops here
-# until we have engine equivalents.
+# EXFO threshold panel — same VISUAL layout as the splice-report panel
+# (same 10 rows, same labels, same column ordering, same customer
+# profile dropdown above the table) but uni-only behaviour: only the
+# Unidir. splice loss row is actually wired to the engine's
+# BEND_THRESHOLD constant.  Every other row renders identically for
+# visual parity but is a no-op here.
 OTDR_ROWS = [
     # (key,                       label,                       fail_default,  unit,    supported)
-    ("unidir_splice_loss",        "Unidir. splice loss",        0.250,        "dB",    True),
-    ("bidir_splice_loss",         "Bidir splice loss",          0.160,        "dB",    True),
+    ("unidir_splice_loss",        "Unidir. splice loss",        0.100,        "dB",    True),
+    ("bidir_splice_loss",         "Bidir splice loss",          0.160,        "dB",    False),
     ("unidir_connector_loss",     "Unidir. connector loss",     0.750,        "dB",    False),
-    ("bidir_connector_loss",      "Bidir connector loss",       0.500,        "dB",    True),
+    ("bidir_connector_loss",      "Bidir connector loss",       0.500,        "dB",    False),
     ("splitter_loss",             "Splitter Loss",              4.500,        "dB",    False),
-    ("reflectance",               "Reflectance",                -49.9,        "dB",    True),
+    ("reflectance",               "Reflectance",                -49.9,        "dB",    False),
     ("fiber_section_atten",       "Fiber section attenuation",  0.400,        "dB/km", False),
     ("span_loss",                 "Span loss",                  20.000,       "dB",    False),
     ("span_length",               "Span length",                0.0000,       "km",    False),
     ("span_orl",                  "Span ORL",                   15.00,        "dB",    False),
 ]
-OTDR_DEFAULT_APPLY = {"unidir_splice_loss", "bidir_splice_loss",
-                      "bidir_connector_loss", "reflectance"}
+OTDR_DEFAULT_APPLY = {"unidir_splice_loss"}
 
 CUSTOMER_PROFILES = {
     "Default (engine baseline)": {
@@ -345,20 +344,9 @@ CUSTOMER_PROFILES = {
         "thresholds": {},
     },
     "Lumen": {
-        "apply":      {"unidir_splice_loss", "bidir_splice_loss",
-                        "bidir_connector_loss", "reflectance"},
+        "apply":      {"unidir_splice_loss"},
         "thresholds": {
-            "bidir_splice_loss":     0.120,
-            "unidir_splice_loss":    0.200,
-            "bidir_connector_loss":  0.400,
-            "reflectance":          -50.0,
-        },
-    },
-    "Zayo": {
-        "apply":      {"bidir_splice_loss", "bidir_connector_loss"},
-        "thresholds": {
-            "bidir_splice_loss":     0.200,
-            "bidir_connector_loss":  0.600,
+            "unidir_splice_loss": 0.200,
         },
     },
     "Custom (edit table below)": {  # sentinel — uses session edits as-is

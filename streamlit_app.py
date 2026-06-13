@@ -182,58 +182,52 @@ def _run_engine_inner(staged_dir: str, direction: Optional[str],
 #  supported=True are wired to engine constants; the rest are visual
 #  parity with the EXFO panel and tagged "not yet wired" until we have
 #  engine code to back them.
-# Row list mirrors the splice-report panel byte-for-byte (same labels,
-# same defaults, same units, same supported flags).  Visual parity is the
-# point — the tech reads the same panel in both apps.
+# Row list mirrors the splice-report panel byte-for-byte VISUALLY (same
+# labels, same units, same column layout, same customer profile
+# dropdown).  Behaviour is uni-only: only the Unidir. splice loss row
+# is actually wired to the engine (BEND_THRESHOLD), so it is the only
+# row pre-checked by default and is the only one whose Apply / Fail
+# value has any effect on the run.
 #
-# NOTE on `supported`: the flag tells the component whether to decorate
-# the row as "not yet wired".  Splice report marks 4 rows supported=True
-# (unidir_splice_loss, bidir_splice_loss, bidir_connector_loss,
-# reflectance) because IT has engine code for all four.  Uni one shot's
-# engine only consumes BEND_THRESHOLD, so only unidir_splice_loss
-# actually affects output here.  The other three are kept at
-# supported=True for visual identity with splice report; ticking Apply
-# on any of them is a no-op for uni until we wire equivalents.
+# The other rows render identically to splice report for visual parity
+# but ticking Apply on any of them is a no-op here — there is no engine
+# equivalent for bidir splice loss / connector loss / reflectance /
+# splitter loss / etc. in uni one shot.  Mark them supported=False so
+# the component decorates them as "not yet wired".
 OTDR_ROWS = [
     # (key,                       label,                       fail_default,  unit,    supported)
-    ("unidir_splice_loss",        "Unidir. splice loss",        0.250,        "dB",    True),
-    ("bidir_splice_loss",         "Bidir splice loss",          0.160,        "dB",    True),
+    ("unidir_splice_loss",        "Unidir. splice loss",        0.100,        "dB",    True),
+    ("bidir_splice_loss",         "Bidir splice loss",          0.160,        "dB",    False),
     ("unidir_connector_loss",     "Unidir. connector loss",     0.750,        "dB",    False),
-    ("bidir_connector_loss",      "Bidir connector loss",       0.500,        "dB",    True),
+    ("bidir_connector_loss",      "Bidir connector loss",       0.500,        "dB",    False),
     ("splitter_loss",             "Splitter Loss",              4.500,        "dB",    False),
-    ("reflectance",               "Reflectance",                -49.9,        "dB",    True),
+    ("reflectance",               "Reflectance",                -49.9,        "dB",    False),
     ("fiber_section_atten",       "Fiber section attenuation",  0.400,        "dB/km", False),
     ("span_loss",                 "Span loss",                  20.000,       "dB",    False),
     ("span_length",               "Span length",                0.0000,       "km",    False),
     ("span_orl",                  "Span ORL",                   15.00,        "dB",    False),
 ]
-# Pre-checked rows (match splice-report's out-of-the-box flagging).
-OTDR_DEFAULT_APPLY = {"unidir_splice_loss", "bidir_splice_loss",
-                      "bidir_connector_loss", "reflectance"}
+# Only the Unidir. splice loss row is pre-checked.  The others render
+# in the table for visual parity with splice report but do not affect
+# the engine.
+OTDR_DEFAULT_APPLY = {"unidir_splice_loss"}
 
 
-# Customer threshold profiles — copied verbatim from splice-report so
-# the same dropdown selections behave the same way across apps.
+# Customer threshold profiles — same shape as splice-report's, but
+# trimmed to only override values that affect uni one shot's behaviour
+# (i.e. unidir_splice_loss).  Lumen and Zayo customers in splice-report
+# care about bidir thresholds the uni engine doesn't honour, so those
+# settings would be misleading if presented here; only Lumen's
+# unidir_splice_loss override is meaningful in this app.
 CUSTOMER_PROFILES = {
     "Default (engine baseline)": {
         "apply":      set(OTDR_DEFAULT_APPLY),
         "thresholds": {},
     },
     "Lumen": {
-        "apply":      {"unidir_splice_loss", "bidir_splice_loss",
-                        "bidir_connector_loss", "reflectance"},
+        "apply":      {"unidir_splice_loss"},
         "thresholds": {
-            "bidir_splice_loss":     0.120,
-            "unidir_splice_loss":    0.200,
-            "bidir_connector_loss":  0.400,
-            "reflectance":          -50.0,
-        },
-    },
-    "Zayo": {
-        "apply":      {"bidir_splice_loss", "bidir_connector_loss"},
-        "thresholds": {
-            "bidir_splice_loss":     0.200,
-            "bidir_connector_loss":  0.600,
+            "unidir_splice_loss": 0.200,
         },
     },
     "Custom (edit table below)": {  # sentinel — uses session edits as-is
