@@ -115,7 +115,7 @@ jobs:
                   break
               }
               try {
-                  $resp = Invoke-WebRequest -Uri http://127.0.0.1:8501/_stcore/health `
+                  $resp = Invoke-WebRequest -Uri http://127.0.0.1:8502/_stcore/health `
                                             -UseBasicParsing -TimeoutSec 2
                   if ($resp.Content.Trim() -eq "ok") {
                       Write-Host "Health endpoint returned ok after $($i*2) s — BOOT SELF-TEST PASSED"

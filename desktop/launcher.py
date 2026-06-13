@@ -39,7 +39,12 @@ import webbrowser
 
 APP_NAME       = "UnidirectionalOneShot"
 SERVER_HOST    = "127.0.0.1"
-SERVER_PORT    = 8501
+# 8502 — NOT 8501 — so we don't clash with Splice Report or any other
+# Streamlit app the maintainer / tech might already be running on the
+# default port.  Every "is anything already on this port" check uses
+# /_stcore/health, which is the same answer for ANY Streamlit app, so
+# we have to use a unique port to disambiguate.
+SERVER_PORT    = 8502
 HEALTH_PATH    = "/_stcore/health"
 HEALTH_TIMEOUT = 90.0   # seconds the first cold boot may take
 GH_OWNER       = "lakeosoyoos"
@@ -144,9 +149,16 @@ def _open_browser_when_ready(deadline_s: float = HEALTH_TIMEOUT) -> None:
 # ─────────────────────────────────────────────────────────────────────
 
 def _already_running() -> bool:
-    """If a previous launcher is still serving, just open a new tab
-    pointing at it and bail.  Stops a double double-click from spawning
-    a second dead server on a port that's already taken."""
+    """If a previous launcher of OURS is still serving, just open a new
+    tab pointing at it and bail.  Stops a double double-click from
+    spawning a second dead server on a port that's already taken.
+
+    Important: a positive /_stcore/health response could be ANY Streamlit
+    app, not necessarily ours — every Streamlit serves that endpoint.
+    By binding to port 8502 (not the Streamlit default 8501) we already
+    avoid the splice-report / other-app collision, and a hit on our
+    health endpoint at our port is good enough to call it the same app.
+    """
     return _health_ok(timeout=1.0)
 
 
