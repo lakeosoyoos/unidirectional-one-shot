@@ -96,6 +96,7 @@ hiddenimports += [
     "unidirectional_event_finder",
     "sor_reader324802a",
     "json_reader",
+    "acquisition_audit",
     # Custom Streamlit component
     "components",
     "components.otdr_settings",
@@ -117,6 +118,7 @@ datas += [
     (str(REPO_ROOT / "unidirectional_event_finder.py"), "."),
     (str(REPO_ROOT / "sor_reader324802a.py"),           "."),
     (str(REPO_ROOT / "json_reader.py"),                 "."),
+    (str(REPO_ROOT / "acquisition_audit.py"),           "."),
     (str(HERE      / "desktop_app.py"),                 "desktop"),
     # Custom component — both .py AND the index.html
     (str(REPO_ROOT / "components" / "otdr_settings" / "__init__.py"),

@@ -63,6 +63,53 @@ def _parse_block_directory(data):
     return blocks
 
 
+def _parse_sup_params(data, blocks):
+    """Read the SupParams block per Telcordia SR-4731 SOR layout.
+
+    Layout after the block name (``SupParams\\0``): a sequence of
+    null-terminated strings, in this order ::
+
+        SupplierName
+        OtdrMainframeId      ("OtdrMainframeId" in the spec; often
+        OtdrMainframeSn       blank for EXFO modular instruments)
+        OtdrModuleId         ← MODEL we want (e.g. "FTBx-730D-SM3")
+        OtdrModuleSn         ← SERIAL we want
+        SoftwareRevision
+        OtherUserInfo
+
+    Returns a dict with each field (string).  Empty dict on missing /
+    unparsable block.  Used by the acquisition-audit sheet to compare
+    instrument / serial across every trace in a run.
+    """
+    if 'SupParams' not in blocks:
+        return {}
+    try:
+        o = blocks['SupParams']['body']
+
+        def _pull(o):
+            e = data.index(b'\x00', o)
+            return data[o:e].decode('latin-1', errors='replace').strip(), e + 1
+
+        supplier,     o = _pull(o)
+        mainframe_id, o = _pull(o)
+        mainframe_sn, o = _pull(o)
+        module_id,    o = _pull(o)
+        module_sn,    o = _pull(o)
+        software_rev, o = _pull(o)
+        other_user,   _ = _pull(o)
+        return {
+            'supplier':     supplier,
+            'mainframe_id': mainframe_id,
+            'mainframe_sn': mainframe_sn,
+            'module_id':    module_id,
+            'module_sn':    module_sn,
+            'software_rev': software_rev,
+            'other_user':   other_user,
+        }
+    except Exception:
+        return {}
+
+
 def _parse_fxd_params(data, blocks):
     if 'FxdParams' not in blocks:
         return {}
@@ -413,6 +460,10 @@ def parse_sor_full(filepath, trim=True):
         'start_index': si, 'end_index': ei,
         'full_points': len(full_trace),
         'date_time': fxd.get('date_time', 0),
+        # SupParams fields — instrument identity for the acquisition audit.
+        # An empty dict means the block was missing / unparsable; the
+        # audit will fall back to the EXFO proprietary serial when present.
+        'sup_params': _parse_sup_params(data, blocks),
     }
     # ── Augment with EXFO proprietary block data when present ──
     prop = _parse_proprietary_block(data, blocks)

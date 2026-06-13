@@ -200,6 +200,7 @@ AUTO_UPDATE_FILES = [
     "sor_reader324802a.py",
     "json_reader.py",
     "unidirectional_event_finder.py",
+    "acquisition_audit.py",
     "components/otdr_settings/__init__.py",
     "components/otdr_settings/index.html",
     "desktop/desktop_app.py",

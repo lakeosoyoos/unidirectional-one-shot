@@ -944,7 +944,7 @@ def _flagged_event_rows(grid, columns, ribbon_size, n_fibers):
 
 
 def write_xlsx(grid, columns, n_fibers, ribbon_size, span_km, output_path,
-               site_a='', site_b=''):
+               site_a='', site_b='', fibers=None):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Unidir Events"
@@ -1180,6 +1180,21 @@ def write_xlsx(grid, columns, n_fibers, ribbon_size, span_km, output_path,
     # Auto-filter so the tech can sort/filter by fiber, ribbon, kind, or distance
     ev_sheet.auto_filter.ref = f"A1:{openpyxl.utils.get_column_letter(len(headers))}{len(rows) + 1}"
 
+    # ── Acquisition-consistency audit (sheet 0) ─────────────────────
+    # Reads fields the existing SOR / JSON parsers already attached to
+    # each fiber dict (with the SupParams + JSON Hardware/TestDateTime
+    # extensions added for this audit) and inserts a green/amber summary
+    # as the FIRST sheet so the workbook opens on it.  Additive only —
+    # nothing above this point changed.
+    if fibers:
+        try:
+            from acquisition_audit import build_audit, write_audit_sheet
+            audit = build_audit(fibers)
+            write_audit_sheet(wb, audit)
+        except Exception as exc:
+            # Audit failure must NOT break the rest of the report.
+            print(f"  WARN: acquisition audit skipped: {exc}")
+
     wb.save(output_path)
     print(f"  Saved: {output_path}  ({len(rows)} flagged-event rows)")
 
@@ -1250,7 +1265,7 @@ def main():
 
     print(f"Writing Excel ({(n_fibers + args.ribbon_size - 1)//args.ribbon_size} ribbons × {len(columns)} columns)...")
     write_xlsx(grid, columns, n_fibers, args.ribbon_size, span, args.output,
-               site_a=site_a, site_b=site_b)
+               site_a=site_a, site_b=site_b, fibers=fibers)
 
 
 if __name__ == '__main__':

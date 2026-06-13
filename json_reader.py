@@ -213,6 +213,22 @@ def parse_otdr_json(filepath: str) -> dict:
         'SpansLength': span_m,
     }
 
+    # ── Acquisition-audit fields (additive, do not affect the analysis) ──
+    # Test timestamp: try top-level first, then per-measurement.
+    test_datetime = (data.get('TestDateTime')
+                     or m.get('TestDateTime')
+                     or '')
+    # OTDR instrument identity lives at the top-level Hardware.UnitA block.
+    hardware = data.get('Hardware') or {}
+    unit_a   = hardware.get('UnitA') or {}
+    otdr_model  = (unit_a.get('ModelName')    or '').strip()
+    otdr_serial = (unit_a.get('SerialNumber') or '').strip()
+    # Averaging is recorded as ISO-8601 duration like "PT15S" — parse to s.
+    duration_raw = (params.get('Duration')
+                    or m.get('Duration')
+                    or '')
+    averaging_s = _parse_iso8601_duration_seconds(duration_raw)
+
     result = {
         'filename': os.path.basename(filepath),
         'filepath': filepath,
@@ -232,8 +248,31 @@ def parse_otdr_json(filepath: str) -> dict:
         '_json_pulse_ns': pulse_ns,
         '_json_wavelength_nm': wavelength_nm,
         '_json_launch_length_m': launch_m,
+        # Acquisition-audit additions
+        '_json_test_datetime':     test_datetime,
+        '_json_otdr_model':        otdr_model,
+        '_json_otdr_serial':       otdr_serial,
+        '_json_averaging_seconds': averaging_s,
+        '_json_duration_raw':      duration_raw,
     }
     return result
+
+
+def _parse_iso8601_duration_seconds(s: str):
+    """Parse an ISO-8601 duration string like ``PT15S``, ``PT1M30S`` or
+    ``PT0.500S`` into seconds (float).  Returns None when ``s`` is empty
+    or unparseable.  Used by the acquisition-audit sheet to compare
+    averaging time across traces."""
+    if not s:
+        return None
+    import re
+    m = re.match(r'^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$', str(s).strip())
+    if not m:
+        return None
+    h, mi, se = m.groups()
+    return ((int(h)   if h  else 0) * 3600
+            + (int(mi) if mi else 0) * 60
+            + (float(se) if se else 0))
 
 
 # ═══════════════════════════════════════════════════════════════════════

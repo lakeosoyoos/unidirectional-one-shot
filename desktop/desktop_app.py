@@ -193,7 +193,8 @@ def _run_engine(staged_dir: str, direction: Optional[str],
         os.makedirs(output_dir, exist_ok=True)
         out_path = os.path.join(output_dir, out_name)
         engine.write_xlsx(grid, columns, n_fibers, ribbon_size, span,
-                          out_path, site_a=site_a, site_b=site_b)
+                          out_path, site_a=site_a, site_b=site_b,
+                          fibers=fibers)
         with open(out_path, "rb") as fh:
             xlsx_bytes = fh.read()
 

@@ -134,7 +134,7 @@ def _run_engine_inner(staged_dir: str, direction: Optional[str],
     out_path = os.path.join(tempfile.mkdtemp(prefix="unidir_out_"),
                             "unidirectional_events.xlsx")
     engine.write_xlsx(grid, columns, n_fibers, ribbon_size, span, out_path,
-                      site_a=site_a, site_b=site_b)
+                      site_a=site_a, site_b=site_b, fibers=fibers)
     with open(out_path, 'rb') as fh:
         xlsx_bytes = fh.read()
 
