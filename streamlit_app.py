@@ -182,31 +182,92 @@ def _run_engine_inner(staged_dir: str, direction: Optional[str],
 #  supported=True are wired to engine constants; the rest are visual
 #  parity with the EXFO panel and tagged "not yet wired" until we have
 #  engine code to back them.
+# Row list mirrors the splice-report panel byte-for-byte (same labels,
+# same defaults, same units, same supported flags).  Visual parity is the
+# point — the tech reads the same panel in both apps.
+#
+# NOTE on `supported`: the flag tells the component whether to decorate
+# the row as "not yet wired".  Splice report marks 4 rows supported=True
+# (unidir_splice_loss, bidir_splice_loss, bidir_connector_loss,
+# reflectance) because IT has engine code for all four.  Uni one shot's
+# engine only consumes BEND_THRESHOLD, so only unidir_splice_loss
+# actually affects output here.  The other three are kept at
+# supported=True for visual identity with splice report; ticking Apply
+# on any of them is a no-op for uni until we wire equivalents.
 OTDR_ROWS = [
-    # (key,                      label,                        fail_default, unit,   supported)
-    ("unidir_splice_loss",       "Unidir. splice loss",        0.100,        "dB",    True),
-    ("bidir_splice_loss",        "Bidir splice loss",          0.160,        "dB",    False),
-    ("unidir_connector_loss",    "Unidir. connector loss",     0.750,        "dB",    False),
-    ("bidir_connector_loss",     "Bidir connector loss",       0.750,        "dB",    False),
-    ("splitter_loss",            "Splitter Loss",              4.500,        "dB",    False),
-    ("reflectance",              "Reflectance",                -49.9,        "dB",    False),
-    ("fiber_section_atten",      "Fiber section attenuation",  0.400,        "dB/km", False),
-    ("span_loss",                "Span loss",                  20.000,       "dB",    False),
-    ("span_length",              "Span length",                0.0000,       "km",    False),
-    ("span_orl",                 "Span ORL",                   15.00,        "dB",    False),
+    # (key,                       label,                       fail_default,  unit,    supported)
+    ("unidir_splice_loss",        "Unidir. splice loss",        0.250,        "dB",    True),
+    ("bidir_splice_loss",         "Bidir splice loss",          0.160,        "dB",    True),
+    ("unidir_connector_loss",     "Unidir. connector loss",     0.750,        "dB",    False),
+    ("bidir_connector_loss",      "Bidir connector loss",       0.500,        "dB",    True),
+    ("splitter_loss",             "Splitter Loss",              4.500,        "dB",    False),
+    ("reflectance",               "Reflectance",                -49.9,        "dB",    True),
+    ("fiber_section_atten",       "Fiber section attenuation",  0.400,        "dB/km", False),
+    ("span_loss",                 "Span loss",                  20.000,       "dB",    False),
+    ("span_length",               "Span length",                0.0000,       "km",    False),
+    ("span_orl",                  "Span ORL",                   15.00,        "dB",    False),
 ]
-# Pre-checked rows — only the universal 0.1 dB uni gate is on by default.
-OTDR_DEFAULT_APPLY = {"unidir_splice_loss"}
+# Pre-checked rows (match splice-report's out-of-the-box flagging).
+OTDR_DEFAULT_APPLY = {"unidir_splice_loss", "bidir_splice_loss",
+                      "bidir_connector_loss", "reflectance"}
 
+
+# Customer threshold profiles — copied verbatim from splice-report so
+# the same dropdown selections behave the same way across apps.
+CUSTOMER_PROFILES = {
+    "Default (engine baseline)": {
+        "apply":      set(OTDR_DEFAULT_APPLY),
+        "thresholds": {},
+    },
+    "Lumen": {
+        "apply":      {"unidir_splice_loss", "bidir_splice_loss",
+                        "bidir_connector_loss", "reflectance"},
+        "thresholds": {
+            "bidir_splice_loss":     0.120,
+            "unidir_splice_loss":    0.200,
+            "bidir_connector_loss":  0.400,
+            "reflectance":          -50.0,
+        },
+    },
+    "Zayo": {
+        "apply":      {"bidir_splice_loss", "bidir_connector_loss"},
+        "thresholds": {
+            "bidir_splice_loss":     0.200,
+            "bidir_connector_loss":  0.600,
+        },
+    },
+    "Custom (edit table below)": {  # sentinel — uses session edits as-is
+        "apply":      None,
+        "thresholds": None,
+    },
+}
+
+
+def _otdr_settings_from_profile(profile_name: str) -> dict:
+    """Return a fresh otdr_settings dict for the named profile."""
+    prof = CUSTOMER_PROFILES.get(profile_name) or {}
+    apply_set    = prof.get("apply")
+    overrides    = prof.get("thresholds") or {}
+    out = {}
+    for key, _, fail_default, _, _ in OTDR_ROWS:
+        fail = float(overrides.get(key, fail_default))
+        applied = ((apply_set is not None and key in apply_set)
+                    if apply_set is not None
+                    else (key in OTDR_DEFAULT_APPLY))
+        out[key] = {"apply": applied, "fail": fail, "warning": fail}
+    return out
+
+
+# Initialise persisted settings + active profile on first run
+if "otdr_profile" not in st.session_state:
+    st.session_state.otdr_profile = next(iter(CUSTOMER_PROFILES))
 if "otdr_settings" not in st.session_state:
-    st.session_state.otdr_settings = {
-        key: {
-            "apply":   key in OTDR_DEFAULT_APPLY,
-            "fail":    fail,
-            "warning": fail,
-        }
-        for key, _, fail, _, _ in OTDR_ROWS
-    }
+    st.session_state.otdr_settings = _otdr_settings_from_profile(
+        st.session_state.otdr_profile)
+
+
+from components.otdr_settings import otdr_settings as otdr_settings_component
+
 
 with st.sidebar:
     # Widen the sidebar so the EXFO-styled table fits cleanly.
@@ -225,11 +286,37 @@ with st.sidebar:
     </style>
     """, unsafe_allow_html=True)
 
-    st.header("Settings")
+    # ── Customer profile dropdown ─────────────────────────────────────
+    # Picking a customer rewrites session_state.otdr_settings with that
+    # customer's preset and re-mounts the component (a fresh key= forces
+    # it to re-render with the new initials).
+    st.markdown("**Customer profile**")
+    _profile_names = list(CUSTOMER_PROFILES.keys())
 
-    # Render the EXFO-styled threshold panel via the same component the
-    # splice-report app uses.  Commit values persist in session_state.
-    from components.otdr_settings import otdr_settings as otdr_settings_component
+    # Defensive cleanup: stale session state from a prior deploy.
+    if st.session_state.get("otdr_profile") not in _profile_names:
+        st.session_state.otdr_profile = _profile_names[0]
+    if st.session_state.get("otdr_profile_select") not in _profile_names:
+        st.session_state.pop("otdr_profile_select", None)
+
+    _cur = st.session_state["otdr_profile"]
+    _picked = st.selectbox(
+        "Customer",
+        _profile_names,
+        index=_profile_names.index(_cur),
+        label_visibility="collapsed",
+        key="otdr_profile_select",
+        help=("Each profile selects a different bundle of Apply / Fail "
+              "values for the OTDR settings table below.  Pick 'Custom' "
+              "to keep your own manual edits."),
+    )
+    if _picked != _cur:
+        st.session_state.otdr_profile = _picked
+        if "Custom" not in _picked:
+            st.session_state.otdr_settings = _otdr_settings_from_profile(_picked)
+        st.rerun()
+
+    # ── Threshold table (custom HTML/CSS/JS component) ─────────────────
     _otdr_rows_for_component = [
         {
             "key":       key,
@@ -240,10 +327,12 @@ with st.sidebar:
         }
         for key, label, _fail, unit, supported in OTDR_ROWS
     ]
+    # Component key encodes the active profile so switching customers
+    # forces a re-mount with the new initial values.
     _commit = otdr_settings_component(
         _otdr_rows_for_component,
         default=None,
-        key="otdr_component",
+        key=f"otdr_component::{st.session_state.otdr_profile}",
     )
     if _commit:
         for key, vals in _commit.items():
@@ -252,11 +341,6 @@ with st.sidebar:
                 "fail":    float(vals.get("fail", 0.0)),
                 "warning": float(vals.get("warning", 0.0)),
             }
-
-    st.caption(
-        "Tick **Apply** on any threshold row above to override the engine "
-        "default for this run.  Reload the page to reset."
-    )
 
 # Engine defaults for the knobs we no longer expose in the UI.  If you
 # want to tune these, edit the constants at the top of

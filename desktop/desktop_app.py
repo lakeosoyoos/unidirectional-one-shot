@@ -275,68 +275,161 @@ def _engine_source_label() -> str:
     return "bundled (offline)"
 
 
+# EXFO threshold panel — IDENTICAL to the splice-report panel.  Same
+# row list, same defaults, same supported flags, same default-Apply
+# set, same customer profile dropdown.  Only `unidir_splice_loss` is
+# actually wired to the uni engine (BEND_THRESHOLD); the other
+# supported=True rows render visually identical but are no-ops here
+# until we have engine equivalents.
+OTDR_ROWS = [
+    # (key,                       label,                       fail_default,  unit,    supported)
+    ("unidir_splice_loss",        "Unidir. splice loss",        0.250,        "dB",    True),
+    ("bidir_splice_loss",         "Bidir splice loss",          0.160,        "dB",    True),
+    ("unidir_connector_loss",     "Unidir. connector loss",     0.750,        "dB",    False),
+    ("bidir_connector_loss",      "Bidir connector loss",       0.500,        "dB",    True),
+    ("splitter_loss",             "Splitter Loss",              4.500,        "dB",    False),
+    ("reflectance",               "Reflectance",                -49.9,        "dB",    True),
+    ("fiber_section_atten",       "Fiber section attenuation",  0.400,        "dB/km", False),
+    ("span_loss",                 "Span loss",                  20.000,       "dB",    False),
+    ("span_length",               "Span length",                0.0000,       "km",    False),
+    ("span_orl",                  "Span ORL",                   15.00,        "dB",    False),
+]
+OTDR_DEFAULT_APPLY = {"unidir_splice_loss", "bidir_splice_loss",
+                      "bidir_connector_loss", "reflectance"}
+
+CUSTOMER_PROFILES = {
+    "Default (engine baseline)": {
+        "apply":      set(OTDR_DEFAULT_APPLY),
+        "thresholds": {},
+    },
+    "Lumen": {
+        "apply":      {"unidir_splice_loss", "bidir_splice_loss",
+                        "bidir_connector_loss", "reflectance"},
+        "thresholds": {
+            "bidir_splice_loss":     0.120,
+            "unidir_splice_loss":    0.200,
+            "bidir_connector_loss":  0.400,
+            "reflectance":          -50.0,
+        },
+    },
+    "Zayo": {
+        "apply":      {"bidir_splice_loss", "bidir_connector_loss"},
+        "thresholds": {
+            "bidir_splice_loss":     0.200,
+            "bidir_connector_loss":  0.600,
+        },
+    },
+    "Custom (edit table below)": {  # sentinel — uses session edits as-is
+        "apply":      None,
+        "thresholds": None,
+    },
+}
+
+
+def _otdr_settings_from_profile(profile_name: str) -> dict:
+    prof = CUSTOMER_PROFILES.get(profile_name) or {}
+    apply_set    = prof.get("apply")
+    overrides    = prof.get("thresholds") or {}
+    out = {}
+    for key, _, fail_default, _, _ in OTDR_ROWS:
+        fail = float(overrides.get(key, fail_default))
+        applied = ((apply_set is not None and key in apply_set)
+                    if apply_set is not None
+                    else (key in OTDR_DEFAULT_APPLY))
+        out[key] = {"apply": applied, "fail": fail, "warning": fail}
+    return out
+
+
+if "otdr_profile" not in st.session_state:
+    st.session_state.otdr_profile = next(iter(CUSTOMER_PROFILES))
+if "otdr_settings" not in st.session_state:
+    st.session_state.otdr_settings = _otdr_settings_from_profile(
+        st.session_state.otdr_profile)
+
+
 with st.sidebar:
+    # Widen the sidebar so the EXFO-styled table fits cleanly.
+    st.markdown("""
+    <style>
+      section[data-testid="stSidebar"],
+      section[data-testid="stSidebar"][aria-expanded="true"] {
+        width: 620px !important;
+        min-width: 620px !important;
+        max-width: 620px !important;
+      }
+      section[data-testid="stSidebar"] > div {
+        width: 620px !important;
+        min-width: 620px !important;
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Engine version + Quit at the very top
     st.markdown(f"**Engine source:** {_engine_source_label()}")
     if st.button("Quit Unidirectional One Shot", use_container_width=True):
         os._exit(0)
     st.divider()
 
-    EXFO_ROWS = [
-        {"key": "unidir_splice_loss",
-         "label": "Unidir. splice loss",
-         "unit": "dB",
-         "supported": True,
-         "initial": {"apply": True,
-                     "fail":     float(engine.BEND_THRESHOLD),
-                     "warning":  float(engine.BEND_THRESHOLD)}},
-        {"key": "bidi_splice_loss",
-         "label": "Bidir splice loss (not wired)",
-         "unit": "dB", "supported": False,
-         "initial": {"apply": False, "fail": 0.150, "warning": 0.100}},
-        {"key": "unidir_conn_loss",
-         "label": "Unidir. connector loss (not wired)",
-         "unit": "dB", "supported": False,
-         "initial": {"apply": False, "fail": 0.500, "warning": 0.300}},
-        {"key": "bidi_conn_loss",
-         "label": "Bidir connector loss (not wired)",
-         "unit": "dB", "supported": False,
-         "initial": {"apply": False, "fail": 0.500, "warning": 0.300}},
-        {"key": "splitter_loss",
-         "label": "Splitter Loss (not wired)",
-         "unit": "dB", "supported": False,
-         "initial": {"apply": False, "fail": 3.500, "warning": 3.200}},
-        {"key": "reflectance",
-         "label": "Reflectance (not wired)",
-         "unit": "dB", "supported": False,
-         "initial": {"apply": False, "fail": -45.0, "warning": -55.0}},
-        {"key": "section_atten",
-         "label": "Fiber section atten. (not wired)",
-         "unit": "dB/km", "supported": False,
-         "initial": {"apply": False, "fail": 0.250, "warning": 0.220}},
-        {"key": "span_loss",
-         "label": "Span loss (not wired)",
-         "unit": "dB", "supported": False,
-         "initial": {"apply": False, "fail": 0.250, "warning": 0.220}},
-        {"key": "span_length",
-         "label": "Span length (not wired)",
-         "unit": "km", "supported": False,
-         "initial": {"apply": False, "fail": 100.0, "warning": 80.0}},
-        {"key": "span_orl",
-         "label": "Span ORL (not wired)",
-         "unit": "dB", "supported": False,
-         "initial": {"apply": False, "fail": 27.0, "warning": 32.0}},
+    # ── Customer profile dropdown ─────────────────────────────────────
+    st.markdown("**Customer profile**")
+    _profile_names = list(CUSTOMER_PROFILES.keys())
+    if st.session_state.get("otdr_profile") not in _profile_names:
+        st.session_state.otdr_profile = _profile_names[0]
+    if st.session_state.get("otdr_profile_select") not in _profile_names:
+        st.session_state.pop("otdr_profile_select", None)
+    _cur = st.session_state["otdr_profile"]
+    _picked = st.selectbox(
+        "Customer",
+        _profile_names,
+        index=_profile_names.index(_cur),
+        label_visibility="collapsed",
+        key="otdr_profile_select",
+        help=("Each profile selects a different bundle of Apply / Fail "
+              "values for the OTDR settings table below.  Pick 'Custom' "
+              "to keep your own manual edits."),
+    )
+    if _picked != _cur:
+        st.session_state.otdr_profile = _picked
+        if "Custom" not in _picked:
+            st.session_state.otdr_settings = _otdr_settings_from_profile(_picked)
+        st.rerun()
+
+    # ── EXFO threshold panel (the custom component) ───────────────────
+    _otdr_rows_for_component = [
+        {
+            "key":       key,
+            "label":     label,
+            "unit":      unit,
+            "supported": supported,
+            "initial":   st.session_state.otdr_settings[key],
+        }
+        for key, label, _fail, unit, supported in OTDR_ROWS
     ]
-    panel = otdr_settings_component(EXFO_ROWS, default=None, key="otdr_panel")
+    panel = otdr_settings_component(
+        _otdr_rows_for_component,
+        default=None,
+        key=f"otdr_component::{st.session_state.otdr_profile}",
+    )
+    if panel:
+        for key, vals in panel.items():
+            st.session_state.otdr_settings[key] = {
+                "apply":   bool(vals.get("apply")),
+                "fail":    float(vals.get("fail", 0.0)),
+                "warning": float(vals.get("warning", 0.0)),
+            }
+
+
+# ── OTDR settings → engine overrides ────────────────────────────────────
+otdr = st.session_state.get("otdr_settings", {})
 
 
 def _otdr_override(key: str, default: float) -> float:
-    if isinstance(panel, dict) and key in panel:
-        row = panel[key]
-        if isinstance(row, dict) and row.get("apply"):
-            try:
-                return float(row.get("fail", default))
-            except (TypeError, ValueError):
-                return default
+    row = otdr.get(key) or {}
+    if row.get("apply") and row.get("fail") is not None:
+        try:
+            return float(row["fail"])
+        except (TypeError, ValueError):
+            return default
     return default
 
 
