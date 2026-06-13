@@ -41,10 +41,11 @@ APP_NAME       = "UnidirectionalOneShot"
 SERVER_HOST    = "127.0.0.1"
 # 8502 — NOT 8501 — so we don't clash with Splice Report or any other
 # Streamlit app the maintainer / tech might already be running on the
-# default port.  Every "is anything already on this port" check uses
-# /_stcore/health, which is the same answer for ANY Streamlit app, so
-# we have to use a unique port to disambiguate.
+# default port.  If 8502 is also taken by something we can't identify
+# as ours, we fall through to 8503/8504/...  SERVER_PORT is mutated by
+# _select_port() at startup, then used by every other function.
 SERVER_PORT    = 8502
+FALLBACK_PORTS = (8503, 8504, 8505)
 HEALTH_PATH    = "/_stcore/health"
 HEALTH_TIMEOUT = 90.0   # seconds the first cold boot may take
 GH_OWNER       = "lakeosoyoos"
@@ -129,6 +130,31 @@ def _health_ok(timeout: float = 2.0) -> bool:
         except Exception: pass
 
 
+def _is_our_app(timeout: float = 2.0) -> bool:
+    """Verify the responder on (SERVER_HOST, SERVER_PORT) is actually
+    OUR Unidirectional One Shot Desktop app — not some other Streamlit
+    process that happens to be on the same port.
+
+    Every Streamlit app returns ``ok`` for /_stcore/health, so that
+    endpoint alone can't disambiguate.  Streamlit's main HTML page
+    embeds ``page_title`` in <title>, which desktop_app.py sets to a
+    unique string.  We fetch the root page and look for that string.
+    """
+    try:
+        conn = http.client.HTTPConnection(SERVER_HOST, SERVER_PORT, timeout=timeout)
+        conn.request("GET", "/")
+        resp = conn.getresponse()
+        if resp.status != 200:
+            return False
+        html = resp.read(8192).decode("utf-8", errors="replace")
+        return "Unidirectional One Shot (Desktop)" in html
+    except Exception:
+        return False
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
 def _open_browser_when_ready(deadline_s: float = HEALTH_TIMEOUT) -> None:
     """Poll /_stcore/health until it returns "ok" or we run out of
     runway, then open the browser.  Opening on a fixed delay shows a
@@ -153,13 +179,15 @@ def _already_running() -> bool:
     tab pointing at it and bail.  Stops a double double-click from
     spawning a second dead server on a port that's already taken.
 
-    Important: a positive /_stcore/health response could be ANY Streamlit
-    app, not necessarily ours — every Streamlit serves that endpoint.
-    By binding to port 8502 (not the Streamlit default 8501) we already
-    avoid the splice-report / other-app collision, and a hit on our
-    health endpoint at our port is good enough to call it the same app.
+    Identity check: every Streamlit app returns ok at /_stcore/health,
+    so we cannot trust that alone — a leftover ``streamlit run`` from a
+    dev session, or a different Streamlit app accidentally on the same
+    port, would falsely pass.  Confirm it's OUR app by checking the root
+    page for the unique page_title set in desktop_app.py.
     """
-    return _health_ok(timeout=1.0)
+    if not _health_ok(timeout=1.0):
+        return False
+    return _is_our_app(timeout=1.5)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -339,6 +367,41 @@ def _boot_streamlit(script: str, engine_dir: pathlib.Path,
 #  7. main()
 # ─────────────────────────────────────────────────────────────────────
 
+def _port_is_free(port: int) -> bool:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind((SERVER_HOST, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def _select_port() -> tuple[int, str]:
+    """Decide which port to run on, and return (port, reason).
+
+    Reason is one of:
+      'already-ours' : OUR app is already serving on SERVER_PORT
+                       → caller should open a browser tab and exit.
+      'free'         : SERVER_PORT is free → caller should start there.
+      'fallback'     : SERVER_PORT is occupied by something else; we
+                       moved to the first free fallback port.
+      'all-taken'    : every candidate is occupied — caller should log
+                       and exit.
+    """
+    global SERVER_PORT
+    if _already_running():
+        return SERVER_PORT, "already-ours"
+    if _port_is_free(SERVER_PORT):
+        return SERVER_PORT, "free"
+    for p in FALLBACK_PORTS:
+        if _port_is_free(p):
+            SERVER_PORT = p
+            return p, "fallback"
+    return SERVER_PORT, "all-taken"
+
+
 def main() -> int:
     # SS_SMOKETEST has to be the very first thing we check — it bypasses
     # logging redirection / browser opening / Streamlit boot.
@@ -347,9 +410,16 @@ def main() -> int:
     _redirect_output_to_log()
     _silence_first_run_prompt()
 
-    if _already_running():
+    port, reason = _select_port()
+    print(f"port selection: {reason} (port={port})")
+
+    if reason == "already-ours":
         webbrowser.open_new_tab(f"http://{SERVER_HOST}:{SERVER_PORT}")
         return 0
+    if reason == "all-taken":
+        print(f"ERROR: ports {[8502, *FALLBACK_PORTS]} all occupied by "
+              "non-UnidirectionalOneShot processes.  Free one and re-launch.")
+        return 1
 
     engine_dir, engine_source = _try_auto_update(_bundle_root())
 
