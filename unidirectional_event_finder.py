@@ -30,6 +30,7 @@ import argparse
 import json
 import math
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -83,77 +84,78 @@ def _is_supported(name: str) -> bool:
     return n.endswith('.sor') or n.endswith('.json')
 
 
+# Optical wavelengths (nm) that EXFO / other vendors append to OTDR
+# filenames, optionally concatenated for multi-λ exports.  Used by the
+# wavelength-suffix strip in _extract_fiber_num below.
+_WL_CODES = ('850', '1300', '1310', '1490', '1550', '1625')
+_WL_SUFFIX_RE = re.compile(
+    r'[\s_\-.](?:' + '|'.join(_WL_CODES) + r')+$'
+)
+_DIGIT_RUN_RE = re.compile(r'\d+')
+
+
 def _extract_fiber_num(filename: str):
-    """Extract the fiber number from an OTDR filename, robustly.
+    """Extract the fiber number from an OTDR filename.
 
-    Pure filename heuristic — only used when GenParams metadata doesn't
-    provide a fiber_id.  Strategy:
+    Survey-hardened (sibling fix from splice-report commit 05eabe2) to
+    handle four real-world patterns that previously produced wrong
+    numbers OR silently overwrote fiber data:
 
-      1. Split basename by underscore (and trailing whitespace).  For
-         each chunk, take its trailing digit run and return that value
-         if it's in the plausible fiber range (1–9999).  This handles
-         names like ``YAKCLE001_1550`` → "001" → 1 (the "1550" chunk
-         exceeds 9999 only if you treat 1550 as a fiber, which we
-         intentionally accept; but the underscore-separated "001"
-         chunk is checked first).
+      1. EXFO JSON with trailing space before the extension
+         (``DURSAN001_1550 .json``) — rstrip stem before the wavelength
+         strip so the suffix regex anchors on $.
 
-      2. Fall back to all digit runs in the basename, preferring
-         zero-padded runs (``0001`` → 1) over un-padded ones.
+      2. Multi-wavelength concatenated suffix
+         (``VERSLK001_131015501625 .json``) — ``(?:...)+`` quantifier
+         in the wavelength alternation eats one OR MORE codes.
 
-      3. Final fallback: take the last 4 digits of the trailing run
-         (handles ``CLE1CLE20001`` → trailing run "20001" → last 4
-         "0001" → 1).
+      3. macOS AppleDouble sidecar files (``._STRROM0001_1550.sor``)
+         — explicitly return None on a ``._`` basename so the loader's
+         dedupe doesn't see the same fnum twice.  ``_walk_files`` also
+         skips them up-front; this is belt-and-suspenders.
+
+      4. (Loader-side, not this fn) Multi-cable upload collisions
+         — handled by the loader's duplicate-fnum warn instead of
+         silent overwrite.
+
+    Used as a fallback when GenParams metadata didn't supply a fiber_id.
+    Returns int or None.
     """
-    base = os.path.basename(filename).rsplit('.', 1)[0].strip()
-
-    # Strategy 1: underscore-separated chunks
-    for part in base.split('_'):
-        part = part.strip()
-        digits = ''
-        for ch in reversed(part):
-            if ch.isdigit():
-                digits = ch + digits
-            else:
-                break
-        if digits:
-            n = int(digits)
-            if 1 <= n <= 9999:
-                return n
-
-    # Strategy 2: all digit runs, prefer zero-padded
-    runs = []
-    cur = ''
-    for ch in base:
-        if ch.isdigit():
-            cur += ch
-        else:
-            if cur:
-                runs.append(cur)
-                cur = ''
-    if cur:
-        runs.append(cur)
-    if not runs:
+    base = os.path.basename(filename)
+    # Pattern 3: AppleDouble sidecars produced by macOS-extracted zips.
+    if base.startswith('._'):
         return None
-    for r in runs:
-        if len(r) > 1 and r[0] == '0':
-            return int(r)
-
-    # Strategy 3: trailing 4 digits of last run
-    last = runs[-1]
-    if len(last) > 4:
-        last = last[-4:]
-    return int(last)
+    stem, _ext = os.path.splitext(base)
+    # Pattern 1: EXFO writes a trailing space before .json on some
+    # exports; strip it before the wavelength regex anchors on $.
+    stem = stem.rstrip()
+    # Pattern 2: drop the wavelength suffix (one or more concatenated
+    # codes) so the remaining stem is the fiber-id portion.
+    stem = _WL_SUFFIX_RE.sub('', stem)
+    matches = _DIGIT_RUN_RE.findall(stem)
+    if not matches:
+        return None
+    return int(matches[-1])
 
 
 def _walk_files(root: str):
-    """Yield (filepath, relname) for every .sor/.json file at root, including
-    inside any .zip files (extracted to a temp dir)."""
+    """Yield ``(filepath, relname)`` for every .sor/.json file at
+    ``root``, including inside any .zip files (extracted to a temp dir).
+
+    Skips macOS AppleDouble sidecars (``._*`` basenames) up-front so
+    they never reach the parser — every Mac-extracted zip ships with
+    a ``._real_filename`` next to each real file, and the parser
+    would otherwise crash on the metadata bytes.  (See pattern 3 in
+    ``_extract_fiber_num``'s docstring.)
+    """
     if os.path.isfile(root):
         targets = [root]
     else:
         targets = []
         for dirpath, _, fnames in os.walk(root):
             for fn in fnames:
+                if fn.startswith('._'):
+                    continue        # macOS AppleDouble sidecar
                 targets.append(os.path.join(dirpath, fn))
 
     for path in targets:
@@ -165,6 +167,8 @@ def _walk_files(root: str):
                     zf.extractall(tmpdir)
                     for sub_dirpath, _, sub_fnames in os.walk(tmpdir):
                         for sub_fn in sub_fnames:
+                            if sub_fn.startswith('._'):
+                                continue
                             if _is_supported(sub_fn):
                                 yield os.path.join(sub_dirpath, sub_fn), sub_fn
             except zipfile.BadZipFile:
@@ -413,13 +417,33 @@ def load_fibers(input_path: str, direction: str = None) -> tuple:
         print("  (override with --direction <signature>)")
 
     fibers = {}
+    first_seen: dict = {}     # fnum → original filename, for collision warns
+    dup_warns_shown = 0
+    dup_warns_suppressed = 0
+    DUP_WARN_CAP = 5
     for fnum, filepath, name, r, sig in raw:
         if sig != chosen:
             continue
         if fnum in fibers:
-            print(f"  WARN: duplicate fiber {fnum} in direction {sig!r} ({name}); keeping first")
+            # Pattern 4 from the filename-extractor survey: two cables
+            # / ribbons accidentally uploaded into one folder map to the
+            # same fnum.  Silently overwriting the first hides the
+            # problem.  Skip the second AND surface the collision so
+            # the tech can see what they uploaded.
+            prior = first_seen.get(fnum, '(unknown)')
+            if dup_warns_shown < DUP_WARN_CAP:
+                print(f"  WARN: duplicate fiber {fnum} in direction "
+                      f"{sig!r} — kept {prior!r}, skipped {name!r}")
+                dup_warns_shown += 1
+            else:
+                dup_warns_suppressed += 1
             continue
         fibers[fnum] = r
+        first_seen[fnum] = name
+    if dup_warns_suppressed:
+        print(f"  WARN: +{dup_warns_suppressed} more duplicate-fiber "
+              f"collisions suppressed (cap = {DUP_WARN_CAP}).  Check the "
+              "input folder for accidental multi-cable / multi-tray uploads.")
     return fibers, chosen
 
 

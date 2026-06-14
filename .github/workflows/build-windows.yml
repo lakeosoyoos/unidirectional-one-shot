@@ -83,6 +83,21 @@ jobs:
         run: python scripts/check_port_assignment.py
 
       # ---------------------------------------------------------------
+      # Filename → fiber-number regression sweep.
+      #
+      # Sibling fix from splice-report commit 05eabe2.  Four real
+      # filename patterns (trailing space before .json, multi-λ
+      # concatenated suffix, AppleDouble sidecars, multi-cable
+      # collisions) silently produced wrong fiber numbers for months
+      # before anyone noticed.  This step locks in the rule so a
+      # future regression of any of them fails the build BEFORE the
+      # Release publishes.
+      # ---------------------------------------------------------------
+      - name: Filename → fiber-number regression sweep
+        working-directory: .
+        run: python tests/test_fiber_num_sweep.py
+
+      # ---------------------------------------------------------------
       # Build the bundle.
       # ---------------------------------------------------------------
       - name: PyInstaller build
