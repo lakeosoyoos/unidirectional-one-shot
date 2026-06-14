@@ -7,6 +7,10 @@ venv/
 *.sor
 *.json
 *.zip
+# Test fixtures are real OTDR data we DO want checked in (small subset,
+# total well under 10 MB).  Whitelist them back in despite the broad
+# *.sor / *.json / *.zip ignores above.
+!tests/fixtures/**
 .idea/
 .vscode/
 desktop/build/

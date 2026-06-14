@@ -44,3 +44,9 @@ reportlab>=4.0
 # Step 4: build tool.  Always last so it can't accidentally pull a
 # newer setuptools as a build-time dependency.
 pyinstaller>=6.5
+
+# Step 5: test runner.  Lives in requirements-desktop.txt so PyInstaller
+# already has pytest in scope and the workflow's "pytest" step doesn't
+# have to re-resolve dependencies from scratch.  Engine + UI tests live
+# under tests/ and run BEFORE the bundle build (see workflow file).
+pytest>=8.0

@@ -604,7 +604,8 @@ output_root = os.path.dirname(raw_input) if was_extracted else folder
 output_dir  = os.path.join(output_root, "_unidir_output")
 
 run_clicked = st.button("Run unidirectional event finder",
-                        type="primary", use_container_width=True)
+                        type="primary", use_container_width=True) \
+              or st.session_state.get("__test_force_run__", False)
 
 if run_clicked:
     with st.spinner(f"Running on {sig_counts.get(chosen_dir, '?')} fibers..."):

@@ -110,6 +110,29 @@ jobs:
         run: python tests/test_fiber_num_sweep.py
 
       # ---------------------------------------------------------------
+      # Pytest suite (engine + UI tests).
+      #
+      # Phase 2 added a proper test suite under tests/: an end-to-end
+      # AppTest of the desktop Run flow plus per-area tests added by
+      # the other agents.  We run it BEFORE the PyInstaller build so a
+      # regression in the engine or UI fails the workflow at a step
+      # that's fast to debug (no bundle to wade through) AND before
+      # the slow Windows .exe bake.
+      #
+      # PYTHONIOENCODING=utf-8 is non-negotiable on Windows: the
+      # default cp1252 stdout codec crashes on the first non-ASCII
+      # character in a pytest message and the step fails for a
+      # reason that has nothing to do with the test failing.
+      # ---------------------------------------------------------------
+      - name: pytest (engine + UI tests, before bundle build)
+        env:
+          PYTHONIOENCODING: utf-8
+        working-directory: .
+        run: |
+          pip install pytest
+          pytest tests/ -v --tb=short
+
+      # ---------------------------------------------------------------
       # Build the bundle.
       # ---------------------------------------------------------------
       - name: PyInstaller build
