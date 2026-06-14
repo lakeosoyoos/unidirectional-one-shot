@@ -28,9 +28,21 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    # Trigger whenever anything that gates or shapes the build changes.
+    # The two early static checks (PORT verification, filename → fiber-
+    # number regression sweep) live under scripts/ and tests/; if they
+    # weren't watched here, a fix to one of them wouldn't re-run CI and
+    # the Release asset would silently fall out of date.
     paths:
       - "desktop/**"
       - ".github/workflows/build-windows.yml"
+      - "scripts/**"
+      - "tests/**"
+      - "unidirectional_event_finder.py"
+      - "sor_reader324802a.py"
+      - "json_reader.py"
+      - "acquisition_audit.py"
+      - "reburn_percentage.py"
 
 permissions:
   contents: write   # so gh release create / upload can publish
