@@ -25,9 +25,20 @@ Run from the repo root:
 """
 from __future__ import annotations
 
+import io
 import pathlib
 import re
 import sys
+
+# Windows' default Python stdout encoding is cp1252; printing any non-
+# ASCII character (e.g. ✓ / →) crashes the CI step with
+# UnicodeEncodeError before the assertion message lands.  Force UTF-8
+# so future maintainers can use whatever characters make the message
+# clearest.  No-op on macOS / Linux runners that already use UTF-8.
+if hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+if hasattr(sys.stderr, "buffer"):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
 
 
 EXPECTED_PORT = 8505

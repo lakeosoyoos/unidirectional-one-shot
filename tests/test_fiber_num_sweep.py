@@ -20,9 +20,21 @@ step calls this script before the bundle is built.
 """
 from __future__ import annotations
 
+import io
 import os
 import pathlib
 import sys
+
+# Windows' default Python stdout encoding is cp1252; printing any non-
+# ASCII character (e.g. the right-arrow used to live in this script's
+# OK message) throws UnicodeEncodeError and the CI step fails with
+# exit code 1.  Force UTF-8 here so future authors can keep using
+# whatever characters make the message clearest.  No-op on macOS /
+# Linux runners that already use UTF-8.
+if hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+if hasattr(sys.stderr, "buffer"):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
 
 # Make the repo root importable when this is run as a script.
 HERE = pathlib.Path(__file__).resolve().parent
