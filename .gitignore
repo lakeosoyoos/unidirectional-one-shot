@@ -15,3 +15,11 @@ venv/
 .vscode/
 desktop/build/
 desktop/dist/
+
+# Slack error-reporting webhook (sibling fix from Secret Sauce 44bce61).
+# The URL is a CI-only secret; the build step writes it into _webhook.cfg
+# just before the bundle is baked.  This file must NEVER be committed —
+# the repo is public, Slack auto-revokes any webhook URL that appears in
+# public source.
+_webhook.cfg
+desktop/_webhook.cfg

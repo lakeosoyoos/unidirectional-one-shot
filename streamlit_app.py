@@ -434,8 +434,23 @@ run_clicked = st.button("Run unidirectional event finder",
 if run_clicked:
     with st.spinner(f"Running on {sig_counts.get(chosen_dir, '?')} fibers — "
                     "loading, discovering splices, classifying events..."):
-        result = _run_engine(staged_dir, chosen_dir, int(ribbon_size),
-                             thresholds)
+        try:
+            result = _run_engine(staged_dir, chosen_dir, int(ribbon_size),
+                                 thresholds)
+        except Exception as exc:
+            st.error(f"Run failed: {exc}")
+            # Slack alert (sibling fix from Secret Sauce 44bce61).  No-op
+            # when SS_ERROR_WEBHOOK isn't set on the Cloud host.
+            try:
+                from error_reporter import report_error
+                report_error("web._run_engine", exc, context={
+                    "direction": chosen_dir,
+                    "n_files":   len(uploaded) if uploaded else 0,
+                    "mode":      "web",
+                })
+            except Exception:
+                pass
+            st.stop()
     if 'error' in result:
         st.error(result['error'])
         st.stop()

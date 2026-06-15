@@ -93,6 +93,7 @@ hiddenimports += [
     "json_reader",
     "acquisition_audit",
     "reburn_percentage",
+    "error_reporter",
     "components",
     "components.otdr_settings",
     "tkinter",
@@ -111,12 +112,25 @@ datas += [
     (str(REPO_ROOT / "json_reader.py"),                 "."),
     (str(REPO_ROOT / "acquisition_audit.py"),           "."),
     (str(REPO_ROOT / "reburn_percentage.py"),           "."),
+    (str(REPO_ROOT / "error_reporter.py"),              "."),
     (str(HERE      / "desktop_app.py"),                 "desktop"),
     (str(REPO_ROOT / "components" / "otdr_settings" / "__init__.py"),
         "components/otdr_settings"),
     (str(REPO_ROOT / "components" / "otdr_settings" / "index.html"),
         "components/otdr_settings"),
 ]
+
+# Conditionally bundle the Slack error-reporting webhook (sibling fix
+# from Secret Sauce 44bce61).  Mac local builds don't normally include
+# the secret — the dev runs the app locally and reporting stays OFF.
+# Only present if the maintainer manually created the file.
+_webhook_cfg = HERE / "_webhook.cfg"
+if _webhook_cfg.exists():
+    datas.append((str(_webhook_cfg), "."))
+    print(f"[spec] bundling _webhook.cfg ({_webhook_cfg.stat().st_size} bytes) — "
+          "Slack error reporting will be ON for this Mac build")
+else:
+    print("[spec] no _webhook.cfg — Slack error reporting will be OFF for this Mac build")
 
 
 excludes = [

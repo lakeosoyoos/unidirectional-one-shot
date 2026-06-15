@@ -117,6 +117,34 @@ def _redirect_output_to_log() -> None:
 #  2. Silence Streamlit's first-run email prompt
 # ─────────────────────────────────────────────────────────────────────
 
+def _load_webhook() -> None:
+    """Load the bundled ``_webhook.cfg`` into ``SS_ERROR_WEBHOOK`` so
+    error_reporter.report_error can post to Slack.
+
+    Sibling fix from Secret Sauce 44bce61.  The file is written by CI
+    just before the bundle build, from the SLACK_ERROR_WEBHOOK repo
+    secret.  A build without the secret omits the file → reporting OFF.
+
+    Looked up in (a) the unpacked PyInstaller bundle root (frozen
+    runtime), then (b) the dev checkout's desktop/ for unfrozen runs.
+    Never logged — printing the URL would leak it into the log file we
+    redirect stdout into."""
+    candidates = [
+        _bundle_root() / "_webhook.cfg",
+        _bundle_root() / "desktop" / "_webhook.cfg",
+        pathlib.Path(__file__).resolve().parent / "_webhook.cfg",
+    ]
+    for c in candidates:
+        try:
+            if c.is_file():
+                url = c.read_text(encoding="utf-8").strip()
+                if url:
+                    os.environ.setdefault("SS_ERROR_WEBHOOK", url)
+                return
+        except Exception:
+            continue
+
+
 def _silence_first_run_prompt() -> None:
     """Streamlit asks for an email on first launch by reading stdin.
     A windowed bundle has no stdin → the app hangs forever with no
@@ -442,6 +470,9 @@ def main() -> int:
 
     _redirect_output_to_log()
     _silence_first_run_prompt()
+    # Load the bundled Slack webhook (if CI baked it) so report_error
+    # has somewhere to post even before Streamlit imports.
+    _load_webhook()
 
     port, reason = _select_port()
     print(f"port selection: {reason} (port={port})")
@@ -454,7 +485,15 @@ def main() -> int:
               "non-UnidirectionalOneShot processes.  Free one and re-launch.")
         return 1
 
-    engine_dir, engine_source = _try_auto_update(_bundle_root())
+    engine_dir = _bundle_root()
+    engine_source = "?"
+    try:
+        engine_dir, engine_source = _try_auto_update(_bundle_root())
+    except Exception:
+        # Auto-update is best-effort; if it crashes outright, fall
+        # through to bundled engine.  Don't post yet — _try_auto_update
+        # already handles network failures internally.
+        pass
 
     # Open the browser on a background thread so the main thread can run
     # Streamlit's blocking event loop.
@@ -465,8 +504,22 @@ def main() -> int:
         return _boot_streamlit(script, engine_dir, engine_source)
     except SystemExit as e:
         return int(e.code or 0)
-    except Exception:
+    except Exception as exc:
+        # Catch-all for the SILENT class of failure: Streamlit / engine
+        # bootstrap crashes before the UI is reachable, the tech sees
+        # only the bundle vanish.  Tail of the traceback lands in
+        # Slack via report_error so we hear about a DOA install even
+        # without the tech telling us.
         traceback.print_exc()
+        try:
+            from error_reporter import report_error
+            report_error("launcher.boot", exc, context={
+                "engine_source": engine_source,
+                "port":          SERVER_PORT,
+                "frozen":        bool(getattr(sys, "frozen", False)),
+            })
+        except Exception:
+            pass
         return 1
 
 

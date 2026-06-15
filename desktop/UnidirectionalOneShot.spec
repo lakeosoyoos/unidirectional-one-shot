@@ -98,6 +98,7 @@ hiddenimports += [
     "json_reader",
     "acquisition_audit",
     "reburn_percentage",
+    "error_reporter",
     # Custom Streamlit component
     "components",
     "components.otdr_settings",
@@ -121,6 +122,7 @@ datas += [
     (str(REPO_ROOT / "json_reader.py"),                 "."),
     (str(REPO_ROOT / "acquisition_audit.py"),           "."),
     (str(REPO_ROOT / "reburn_percentage.py"),           "."),
+    (str(REPO_ROOT / "error_reporter.py"),              "."),
     (str(HERE      / "desktop_app.py"),                 "desktop"),
     # Custom component — both .py AND the index.html
     (str(REPO_ROOT / "components" / "otdr_settings" / "__init__.py"),
@@ -128,6 +130,20 @@ datas += [
     (str(REPO_ROOT / "components" / "otdr_settings" / "index.html"),
         "components/otdr_settings"),
 ]
+
+# Conditionally bundle the Slack error-reporting webhook (sibling fix
+# from Secret Sauce 44bce61).  CI writes this file from the
+# SLACK_ERROR_WEBHOOK repo secret right before the build; the file
+# itself is in .gitignore and never committed.  A local build without
+# the file ships with reporting OFF — _load_webhook() handles the
+# missing file gracefully.
+_webhook_cfg = HERE / "_webhook.cfg"
+if _webhook_cfg.exists():
+    datas.append((str(_webhook_cfg), "."))
+    print(f"[spec] bundling _webhook.cfg ({_webhook_cfg.stat().st_size} bytes) — "
+          "Slack error reporting will be ON for this build")
+else:
+    print("[spec] no _webhook.cfg — Slack error reporting will be OFF for this build")
 
 
 # ─────────────────────────────────────────────────────────────────────

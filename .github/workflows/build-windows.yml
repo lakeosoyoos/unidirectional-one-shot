@@ -133,6 +133,31 @@ jobs:
           pytest tests/ -v --tb=short
 
       # ---------------------------------------------------------------
+      # Bake the Slack error-reporting webhook from the CI secret.
+      #
+      # Sibling fix from Secret Sauce 44bce61.  Writes
+      # desktop/_webhook.cfg from secrets.SLACK_ERROR_WEBHOOK so the
+      # spec picks it up via the conditional `_webhook_cfg.exists()`
+      # block.  The file is .gitignored — never committed — and
+      # exists only on the CI runner for the duration of the build.
+      #
+      # If the secret isn't set on the repo, the file is NOT written;
+      # the spec ships reporting OFF.  The build still succeeds — the
+      # tech just gets no Slack alerts on crashes.
+      # ---------------------------------------------------------------
+      - name: Bake error-report webhook (from secret)
+        shell: pwsh
+        env:
+          SLACK_ERROR_WEBHOOK: ${{ secrets.SLACK_ERROR_WEBHOOK }}
+        run: |
+          if ($env:SLACK_ERROR_WEBHOOK) {
+              Set-Content -NoNewline -Path "_webhook.cfg" -Value $env:SLACK_ERROR_WEBHOOK
+              Write-Host "Wrote desktop/_webhook.cfg ($((Get-Item _webhook.cfg).Length) bytes) — Slack reporting ON"
+          } else {
+              Write-Host "No SLACK_ERROR_WEBHOOK secret — Slack reporting OFF for this build"
+          }
+
+      # ---------------------------------------------------------------
       # Build the bundle.
       # ---------------------------------------------------------------
       - name: PyInstaller build

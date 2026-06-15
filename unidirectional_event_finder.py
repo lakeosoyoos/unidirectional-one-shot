@@ -1218,6 +1218,12 @@ def write_xlsx(grid, columns, n_fibers, ribbon_size, span_km, output_path,
         except Exception as exc:
             # Audit failure must NOT break the rest of the report.
             print(f"  WARN: acquisition audit skipped: {exc}")
+            try:
+                from error_reporter import report_error
+                report_error("write_xlsx.audit_sheet", exc,
+                              context={"n_fibers": len(fibers)})
+            except Exception:
+                pass
 
     # ── Reburn percentage (sheet 1) ──────────────────────────────────
     # Headline metric: fraction of (ribbon × splice column) cells that
@@ -1236,6 +1242,13 @@ def write_xlsx(grid, columns, n_fibers, ribbon_size, span_km, output_path,
               f"splice cells)")
     except Exception as exc:
         print(f"  WARN: reburn sheet skipped: {exc}")
+        try:
+            from error_reporter import report_error
+            report_error("write_xlsx.reburn_sheet", exc,
+                          context={"n_ribbons": n_ribbons,
+                                   "n_cols": len(columns)})
+        except Exception:
+            pass
 
     wb.save(output_path)
     print(f"  Saved: {output_path}  ({len(rows)} flagged-event rows)")

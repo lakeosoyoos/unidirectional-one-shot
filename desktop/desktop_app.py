@@ -609,8 +609,24 @@ run_clicked = st.button("Run unidirectional event finder",
 
 if run_clicked:
     with st.spinner(f"Running on {sig_counts.get(chosen_dir, '?')} fibers..."):
-        result = _run_engine(staged_dir, chosen_dir, ribbon_size,
-                             thresholds, output_dir)
+        try:
+            result = _run_engine(staged_dir, chosen_dir, ribbon_size,
+                                 thresholds, output_dir)
+        except Exception as exc:
+            st.error(f"Run failed: {exc}")
+            # Slack alert so we hear about tech-side crashes (sibling
+            # fix from Secret Sauce 44bce61).  No-op when the build
+            # didn't ship with a webhook.
+            try:
+                from error_reporter import report_error
+                report_error("desktop._run_engine", exc, context={
+                    "direction": chosen_dir,
+                    "n_files":   len(inputs),
+                    "mode":      "desktop",
+                })
+            except Exception:
+                pass
+            st.stop()
     if "error" in result:
         st.error(result["error"]); st.stop()
     st.session_state["_last_result"] = result
